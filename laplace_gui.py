@@ -186,15 +186,15 @@ def compute_frequency_response():
     # Magnitude plot
     # ------------------------------------------------------------
     ax_mag.clear()
-    ax_mag.plot(omega, H_mag, color='red', linewidth=2)
-    style_mag_phase(ax_mag, "Απόκριση Πλάτους", r"$|H(e^{j\omega})|$")
+    ax_mag.semilogx(omega, H_mag, color='red', linewidth=2)
+    style_mag_phase(ax_mag, "Απόκριση Πλάτους", r"$|H(j\omega)|$")
 
     # ------------------------------------------------------------
     # Phase plot
     # ------------------------------------------------------------
     ax_phase.clear()
-    ax_phase.plot(omega, H_phase, color='red', linewidth=2)
-    style_mag_phase(ax_phase, "Απόκριση Φάσης", r"$\angle H(e^{j\omega})$")
+    ax_phase.semilogx(omega, H_phase, color='red', linewidth=2)
+    style_mag_phase(ax_phase, "Απόκριση Φάσης", r"$\angle H(j\omega)$")
     ax_phase.set_xlabel(r"$\omega$")
 
     # ------------------------------------------------------------
