@@ -134,10 +134,10 @@ def style_mag_phase(ax, title, ylabel):
     Apply consistent formatting and tick labels for all frequency-domain plots.
     """
     ax.set_title(title, pad=6)
-    ax.set_xlim(-np.pi, np.pi)
+    # ax.set_xlim(-np.pi, np.pi)
     ax.set_ylabel(ylabel)
-    ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
-    ax.set_xticklabels(['-π', '-π/2', '0', 'π/2', 'π'])
+    # ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    # ax.set_xticklabels(['-π', '-π/2', '0', 'π/2', 'π'])
     ax.grid(True)
 
 
