@@ -142,9 +142,9 @@ def style_mag_phase(ax, title, ylabel):
 
 
 # Apply formatting to magnitude, phase, and group delay subplots
-style_mag_phase(ax_mag, "Απόκριση Πλάτους", r"$|H(e^{j\omega})|$")
-style_mag_phase(ax_phase, "Απόκριση Φάσης", r"$\angle H(e^{j\omega})$")
-ax_phase.set_xlabel(r"$\omega$")
+style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
+style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
+ax_phase.set_xlabel(r"$\omega$ [rad/s]")
 style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
 ax_gdelay.set_xlabel(r"$\omega$")
 
@@ -570,9 +570,9 @@ def save(event):
         "zeros": [[z.real, z.imag] for z in zeros],
         "poles": [[p.real, p.imag] for p in poles]
     }
-    with open("zplane_data.json", "w") as f:
+    with open("splane_data.json", "w") as f:
         json.dump(data, f)
-    print("Αποθηκεύτηκε σε zplane_data.json")
+    print("Αποθηκεύτηκε σε splane_data.json")
 
 
 # ============================================================
@@ -583,10 +583,10 @@ def load(event):
     Load poles and zeros from 'zplane_data.json', replacing the current diagram.
     Automatically refreshes the plot.
     """
-    if not os.path.exists("zplane_data.json"):
+    if not os.path.exists("splane_data.json"):
         print("Το αρχείο δεν υπάρχει.")
         return
-    with open("zplane_data.json", "r") as f:
+    with open("splane_data.json", "r") as f:
         data = json.load(f)
     zeros.clear()
     poles.clear()
@@ -598,7 +598,7 @@ def load(event):
         poles.append(complex(*p))
         history.append(('pole', complex(*p)))
     update_plot()
-    print("Φορτώθηκαν δεδομένα από zplane_data.json")
+    print("Φορτώθηκαν δεδομένα από splane_data.json")
 
 
 # ============================================================
@@ -613,7 +613,7 @@ def manual_submit(text):
         manual_value[0] = complex(text.strip())
         print(f"Εισήχθη: {manual_value[0]}")
     except Exception:
-        print("Μη έγκυρη μορφή. Π.χ. 0.5+0.5j")
+        print("Μη έγκυρη μορφή για σημείο s. Π.χ. -1+2j")
 
 
 # ============================================================
@@ -837,7 +837,7 @@ def submit_count(text):
 text_count.on_submit(submit_count)
 
 # Text box: manual complex number input (e.g., 0.5+0.5j)
-text_box = TextBox(ax_input, "z= ", initial="0.0+0.0j")
+text_box = TextBox(ax_input, "s= ", initial="0.0+0.0j")
 text_box.on_submit(manual_submit)
 
 # ============================================================
