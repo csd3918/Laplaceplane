@@ -178,8 +178,8 @@ def compute_frequency_response():
 
     # Compute the frequency response
     H = numerator / denominator
-    H_mag = np.abs(H)
-    H_phase = np.unwrap(np.angle(H))  # unwrap avoids phase discontinuities
+    H_mag = 20 * np.log10(np.maximum(np.abs(H),1e-12))
+    H_phase = np.unwrap(np.angle(H)) * 180 / np.pi  # unwrap avoids phase discontinuities
     gdelay = -np.gradient(H_phase, omega)  # group delay = -dφ/dω
 
     # ------------------------------------------------------------
@@ -187,15 +187,15 @@ def compute_frequency_response():
     # ------------------------------------------------------------
     ax_mag.clear()
     ax_mag.semilogx(omega, H_mag, color='red', linewidth=2)
-    style_mag_phase(ax_mag, "Απόκριση Πλάτους", r"$|H(j\omega)|$")
+    style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
 
     # ------------------------------------------------------------
     # Phase plot
     # ------------------------------------------------------------
     ax_phase.clear()
     ax_phase.semilogx(omega, H_phase, color='red', linewidth=2)
-    style_mag_phase(ax_phase, "Απόκριση Φάσης", r"$\angle H(j\omega)$")
-    ax_phase.set_xlabel(r"$\omega$")
+    style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
+    ax_phase.set_xlabel(r"$\omega$ [rad/s]")
 
     # ------------------------------------------------------------
     # Group delay plot
