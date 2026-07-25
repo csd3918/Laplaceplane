@@ -103,7 +103,7 @@ ax_plane = plt.axes([0.05, 0.15, 0.35, 0.60])
 # Right-side plots: magnitude, phase, and group delay responses
 ax_mag = plt.axes([0.45, 0.62, 0.50, 0.15])
 ax_phase = plt.axes([0.45, 0.40, 0.50, 0.15])
-ax_gdelay = plt.axes([0.45, 0.16, 0.50, 0.15])
+ax_info = plt.axes([0.45, 0.16, 0.50, 0.15])
 
 # ============================================================
 # Setup Laplace-plane axes appearance
@@ -145,9 +145,10 @@ def style_mag_phase(ax, title, ylabel):
 style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
 style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
 ax_phase.set_xlabel(r"$\omega$ [rad/s]")
-style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
-ax_gdelay.set_xlabel(r"$\omega$")
-
+# style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
+# ax_gdelay.set_xlabel(r"$\omega$")
+ax_info.axis('off')
+ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
 
 # ============================================================
 # Function: compute_frequency_response()
@@ -200,10 +201,10 @@ def compute_frequency_response():
     # ------------------------------------------------------------
     # Group delay plot
     # ------------------------------------------------------------
-    ax_gdelay.clear()
-    ax_gdelay.plot(omega, gdelay, color='red', linewidth=2)
-    style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
-    ax_gdelay.set_xlabel(r"$\omega$")
+    # ax_gdelay.clear()
+    # ax_gdelay.plot(omega, gdelay, color='red', linewidth=2)
+    # style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
+    # ax_gdelay.set_xlabel(r"$\omega$")
 
 
 # ============================================================
@@ -336,6 +337,133 @@ def draw_roc(lim):
         zorder=5
     )
 
+
+# ============================================================
+# Helper functions
+# ============================================================
+
+def format_complex(c):
+    """
+    Format a complex number for display in the S-plane.
+    """
+    return f"{c.real:.2f}{c.imag:+.2f}j"
+
+
+def build_transfer_function_text():
+    """
+    Build a readable textual representation of H(s)
+    based on the current zeros and poles.
+    """
+    if len(zeros) == 0:
+        numerator = "1"
+    else:
+        numerator = " ".join([f"(s - ({format_complex(z)}))" for z in zeros])
+
+    if len(poles) == 0:
+        denominator = "1"
+    else:
+        denominator = " ".join([f"(s - ({format_complex(p)}))" for p in poles])
+
+    return f"H(s) = {numerator} / {denominator}"
+
+
+def get_stability_text():
+    """
+    Determine causal BIBO stability for a continuous-time LTI system.
+    For a causal system, stability requires all poles to lie in the left half-plane.
+    """
+    if len(poles) == 0:
+        return "Causal stability: No poles"
+
+    if all(p.real < 0 for p in poles):
+        return "Causal stability: Stable"
+
+    return "Causal stability: Unstable"
+
+
+def get_roc_text():
+    """
+    Return a text description of the current Laplace ROC.
+    """
+    if roc_mode[0] == 'none':
+        return "ROC: Not selected"
+
+    if len(poles) == 0:
+        return "ROC: Undefined, no poles"
+
+    sigmas = [p.real for p in poles]
+
+    if roc_mode[0] == 'causal':
+        return f"ROC: Re(s) > {max(sigmas):.3f}"
+
+    if roc_mode[0] == 'anticausal':
+        return f"ROC: Re(s) < {min(sigmas):.3f}"
+
+    strip = _compute_noncausal_strip(sigmas)
+
+    if strip is None:
+        return "ROC: Noncausal requires at least two distinct pole real parts"
+
+    sigma_left, sigma_right = strip
+    return f"ROC: {sigma_left:.3f} < Re(s) < {sigma_right:.3f}"
+def draw_info_panel():
+    """
+    Display system information instead of the group delay plot.
+    """
+    ax_info.clear()
+    ax_info.axis('off')
+    ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
+
+    if len(poles) > 0:
+        rightmost_pole = max(poles, key=lambda p: p.real)
+        rightmost_text = f"Rightmost pole: {format_complex(rightmost_pole)}"
+    else:
+        rightmost_text = "Rightmost pole: None"
+
+    stability_text = get_stability_text()
+    stability_color = "green" if "Stable" in stability_text and "Unstable" not in stability_text else "red"
+
+    info_lines = [
+        build_transfer_function_text(),
+        "",
+        f"Number of zeros: {len(zeros)}",
+        f"Number of poles: {len(poles)}",
+        rightmost_text,
+        "",
+        stability_text,
+        get_roc_text()
+    ]
+
+    info_text = "\n".join(info_lines)
+
+    ax_info.text(
+        0.02,
+        0.95,
+        info_text,
+        transform=ax_info.transAxes,
+        fontsize=10,
+        verticalalignment='top',
+        family='monospace',
+        color='black',
+        bbox=dict(
+            facecolor='white',
+            alpha=0.85,
+            edgecolor='lightgray'
+        )
+    )
+
+    # Add a small colored stability indicator
+    ax_info.text(
+        0.98,
+        0.95,
+        "●",
+        transform=ax_info.transAxes,
+        fontsize=16,
+        verticalalignment='top',
+        horizontalalignment='right',
+        color=stability_color
+    )
+
 # ============================================================
 # Function: update_plot()
 # ============================================================
@@ -391,6 +519,9 @@ def update_plot():
 
     # Draw ROC region shading
     draw_roc(lim)
+
+    #Draw information panel
+    draw_info_panel()
 
     # Trigger a GUI refresh
     fig.canvas.draw_idle()
