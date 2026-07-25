@@ -209,65 +209,60 @@ def compute_frequency_response():
 # ============================================================
 # Helper function: _compute_noncausal_band()
 # ============================================================
-def _compute_noncausal_band(radii):
+def _compute_noncausal_strip(sigmas):
     """
-    Compute an appropriate ROC band for the noncausal case, given pole radii.
+    Compute an appropriate ROC strip for the noncausal Laplace case.
 
-    A "band" ROC exists between two circles |z| = r_in and |z| = r_out.
-    Ideally, the band straddles the unit circle (|z|=1). If not possible,
-    the function returns the largest available gap between pole magnitudes.
+    In the s-plane, a noncausal ROC is a vertical strip:
+        sigma_in < Re(s) < sigma_out
 
-    Args:
-        radii (list[float]): List of absolute values (radii) of poles.
-
-    Returns:
-        (r_in, r_out): Inner and outer radii of the ROC band, or None if invalid.
+    The strip must lie between two pole real parts.
     """
-    if not radii or len(radii) < 2:
+    if not sigmas or len(sigmas) < 2:
         return None
 
-    # Sort and deduplicate the pole radii
-    radii = sorted(set(radii))
+    sigmas = sorted(set(sigmas))
 
-    # Separate poles inside and outside the unit circle
-    inside = [r for r in radii if r < 1.0]
-    outside = [r for r in radii if r > 1.0]
+    if len(sigmas) < 2:
+        return None
 
-    # If both sides exist, pick the pair that straddles |z|=1
-    if inside and outside:
-        return max(inside), min(outside)
+    # Find the largest gap between consecutive pole real parts
+    gaps = [
+        (sigmas[i], sigmas[i + 1], sigmas[i + 1] - sigmas[i])
+        for i in range(len(sigmas) - 1)
+    ]
 
-    # Otherwise, find the largest gap between consecutive poles
-    gaps = [(radii[i], radii[i + 1], radii[i + 1] - radii[i]) for i in range(len(radii) - 1)]
     gaps.sort(key=lambda t: t[2], reverse=True)
-    r_in, r_out, _ = gaps[0]
-    return r_in, r_out
 
+    sigma_left, sigma_right, _ = gaps[0]
+
+    return sigma_left, sigma_right
 
 # ============================================================
 # Function: draw_roc()
 # ============================================================
 def draw_roc(lim):
     """
-    Visualize the Region of Convergence (ROC) in the Z-plane as a shaded area.
+    Visualize the Region of Convergence (ROC) in the Laplace S-plane.
 
-    Depending on `roc_mode`, it highlights:
-        - Causal: |z| > max(|p_i|)
-        - Anticausal: |z| < min(|p_i|)
-        - Noncausal: r_in < |z| < r_out (band)
-        - None: no shading
+    Depending on roc_mode, it highlights:
+        - Causal:      Re(s) > max(Re(p_i))
+        - Anticausal:  Re(s) < min(Re(p_i))
+        - Noncausal:   sigma_left < Re(s) < sigma_right
+        - None:        no shading
 
     Args:
         lim (float): Axis limit for consistent extent of the shading.
     """
 
-    # Remove previous ROC visualization (if any)
+    # Remove previous ROC visualization if it exists
     if roc_im[0] is not None:
         try:
             roc_im[0].remove()
         except Exception:
             pass
         roc_im[0] = None
+
     if roc_label[0] is not None:
         try:
             roc_label[0].remove()
@@ -275,45 +270,51 @@ def draw_roc(lim):
             pass
         roc_label[0] = None
 
-    # No ROC mode selected
+    # No ROC selected
     if roc_mode[0] == 'none':
         return
 
-    # No poles → ROC undefined
+    # ROC is defined based on poles
     if len(poles) == 0:
         return
 
-    # Compute radii of all poles
-    radii = [abs(p) for p in poles]
-    r_max = max(radii)
-    r_min = min(radii)
+    # Use the real parts of the poles, not their magnitudes
+    sigmas = [p.real for p in poles]
 
-    # Prepare a grid of (x, y) points over the Z-plane
+    sigma_max = max(sigmas)
+    sigma_min = min(sigmas)
+
+    # Grid over the S-plane
     N = 400
     x = np.linspace(-lim, lim, N)
     y = np.linspace(-lim, lim, N)
     X, Y = np.meshgrid(x, y)
-    R = np.sqrt(X ** 2 + Y ** 2)  # |z| magnitude grid
 
-    # Determine the shading mask and text label based on ROC mode
+    # In the S-plane, X corresponds to Re(s)
     if roc_mode[0] == 'causal':
-        mask = R > (r_max + 1e-6)
-        roc_text = fr"ROC: |z| > {r_max:.3f}"
-    elif roc_mode[0] == 'anticausal':
-        mask = R < (r_min - 1e-6)
-        roc_text = fr"ROC: |z| < {r_min:.3f}"
-    else:
-        # Noncausal band case
-        band = _compute_noncausal_band(radii)
-        if band is None:
-            return
-        r_in, r_out = band
-        if r_out - r_in < 1e-4:
-            return
-        mask = (R > (r_in + 1e-6)) & (R < (r_out - 1e-6))
-        roc_text = fr"ROC: {r_in:.3f} < |z| < {r_out:.3f}"
+        mask = X > (sigma_max + 1e-6)
+        roc_text = fr"ROC: Re(s) > {sigma_max:.3f}"
 
-    # Draw semi-transparent ROC region overlay
+    elif roc_mode[0] == 'anticausal':
+        mask = X < (sigma_min - 1e-6)
+        roc_text = fr"ROC: Re(s) < {sigma_min:.3f}"
+
+    else:
+        # Noncausal ROC: vertical strip between two pole real parts
+        strip = _compute_noncausal_strip(sigmas)
+
+        if strip is None:
+            return
+
+        sigma_left, sigma_right = strip
+
+        if sigma_right - sigma_left < 1e-6:
+            return
+
+        mask = (X > (sigma_left + 1e-6)) & (X < (sigma_right - 1e-6))
+        roc_text = fr"ROC: {sigma_left:.3f} < Re(s) < {sigma_right:.3f}"
+
+    # Draw semi-transparent ROC region
     roc_im[0] = ax_plane.imshow(
         mask.astype(float),
         extent=[-lim, lim, -lim, lim],
@@ -323,16 +324,17 @@ def draw_roc(lim):
         zorder=0
     )
 
-    # Add ROC label text on top of Z-plane
+    # Add ROC label
     roc_label[0] = ax_plane.text(
-        0.02, 0.02, roc_text,
+        0.02,
+        0.02,
+        roc_text,
         transform=ax_plane.transAxes,
         fontsize=10,
         color='green',
         bbox=dict(facecolor='white', alpha=0.6, edgecolor='none'),
         zorder=5
     )
-
 
 # ============================================================
 # Function: update_plot()

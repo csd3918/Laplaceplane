@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="bbef4fdc-e695-4a58-9ea8-684003247572" name="Changes" comment="Day 2 step3/11 complete">
+    <list default="true" id="bbef4fdc-e695-4a58-9ea8-684003247572" name="Changes" comment="Day 2 step4/11 complete">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/laplace_gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/laplace_gui.py" afterDir="false" />
     </list>
@@ -154,7 +154,15 @@
       <option name="project" value="LOCAL" />
       <updated>1784924479274</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Day 2 step4/11 complete">
+      <option name="closed" value="true" />
+      <created>1784925709592</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1784925709592</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -172,7 +180,8 @@
     <MESSAGE value="base commit" />
     <MESSAGE value="Day 1" />
     <MESSAGE value="Day 2 step3/11 complete" />
-    <option name="LAST_COMMIT_MESSAGE" value="Day 2 step3/11 complete" />
+    <MESSAGE value="Day 2 step4/11 complete" />
+    <option name="LAST_COMMIT_MESSAGE" value="Day 2 step4/11 complete" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
