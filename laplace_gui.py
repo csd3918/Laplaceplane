@@ -145,8 +145,8 @@ def style_mag_phase(ax, title, ylabel):
 style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
 style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
 ax_phase.set_xlabel(r"$\omega$ [rad/s]")
-# style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
-# ax_gdelay.set_xlabel(r"$\omega$")
+
+#System information panel
 ax_info.axis('off')
 ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
 
@@ -181,7 +181,6 @@ def compute_frequency_response():
     H = numerator / denominator
     H_mag = 20 * np.log10(np.maximum(np.abs(H),1e-12))
     H_phase = np.unwrap(np.angle(H)) * 180 / np.pi  # unwrap avoids phase discontinuities
-    gdelay = -np.gradient(H_phase, omega)  # group delay = -dφ/dω
 
     # ------------------------------------------------------------
     # Magnitude plot
@@ -197,15 +196,6 @@ def compute_frequency_response():
     ax_phase.semilogx(omega, H_phase, color='red', linewidth=2)
     style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
     ax_phase.set_xlabel(r"$\omega$ [rad/s]")
-
-    # ------------------------------------------------------------
-    # Group delay plot
-    # ------------------------------------------------------------
-    # ax_gdelay.clear()
-    # ax_gdelay.plot(omega, gdelay, color='red', linewidth=2)
-    # style_mag_phase(ax_gdelay, "Καθυστέρηση Ομάδας", r"$\tau_g(\omega)$")
-    # ax_gdelay.set_xlabel(r"$\omega$")
-
 
 # ============================================================
 # Helper function: _compute_noncausal_band()
@@ -520,7 +510,7 @@ def update_plot():
     # Draw ROC region shading
     draw_roc(lim)
 
-    #Draw information panel
+    #Draw system information panel
     draw_info_panel()
 
     # Trigger a GUI refresh
