@@ -161,6 +161,46 @@ def get_imaginary_axis_poles(tolerance=1e-9):
         if abs(pole.real) <= tolerance
     ]
 
+def compute_frequency_range(num_points=2000):
+    """
+    Create an automatic logarithmic frequency range based on
+    the current pole and zero locations.
+
+    Two decades are displayed below the smallest characteristic
+    frequency and above the largest characteristic frequency.
+    """
+    all_roots = poles + zeros
+
+    characteristic_frequencies = [
+        abs(root)
+        for root in all_roots
+        if abs(root) > 1e-9
+    ]
+
+    if not characteristic_frequencies:
+        omega_min = 1e-2
+        omega_max = 1e3
+    else:
+        smallest_frequency = min(characteristic_frequencies)
+        largest_frequency = max(characteristic_frequencies)
+
+        omega_min = smallest_frequency / 100.0
+        omega_max = largest_frequency * 100.0
+
+        # Avoid impractically small or large values
+        omega_min = max(omega_min, 1e-6)
+        omega_max = min(omega_max, 1e6)
+
+        if omega_max <= omega_min:
+            omega_min = 1e-2
+            omega_max = 1e3
+
+    return np.logspace(
+        np.log10(omega_min),
+        np.log10(omega_max),
+        num_points
+    )
+
 # ============================================================
 # Function: compute_frequency_response()
 # ============================================================
@@ -175,7 +215,7 @@ def compute_frequency_response():
         3. Clear and redraw the corresponding plots.
     """
     # Sample ω from -π to π for evaluation on the unit circle
-    omega = np.logspace(-2, 3, 2000)
+    omega = compute_frequency_range(num_points=2000)
     s = 1j * omega  # s = jω frequency of continious time system's response
 
     # Initialize numerator and denominator of H(s)
