@@ -450,54 +450,38 @@ def build_transfer_function_text():
 
 def get_stability_text():
     """
-    Determine BIBO stability using the selected Laplace ROC.
-
-    A continuous-time LTI system is BIBO stable when the ROC
-    contains the imaginary axis Re(s) = 0.
-
-    The transfer function must also be proper:
-        number of zeros <= number of poles
+    Determine BIBO stability using pole locations
+    and the selected Laplace ROC.
     """
+    tolerance = 1e-10
 
-    # No ROC has been selected
+    # This conclusion is valid regardless of ROC selection
+    if any(abs(p.real) < tolerance for p in poles):
+        return "Stability: Unstable, pole on jω axis"
+
     if roc_mode[0] == 'none':
         return "Stability: Unknown, select ROC"
 
-    # An improper rational transfer function is not BIBO stable
     if len(zeros) > len(poles):
         return "Stability: Unstable, improper H(s)"
 
-    # No finite poles
     if len(poles) == 0:
         return "Stability: Stable"
 
     sigmas = [p.real for p in poles]
 
-    # Check explicitly for poles on the imaginary axis
-    tolerance = 1e-10
-
-    if any(abs(sigma) < tolerance for sigma in sigmas):
-        return "Stability: Unstable, pole on jω axis"
-
-    # Causal ROC: Re(s) > rightmost pole
     if roc_mode[0] == 'causal':
-        sigma_max = max(sigmas)
-
-        if sigma_max < 0:
+        if max(sigmas) < 0:
             return "Stability: Stable"
 
         return "Stability: Unstable"
 
-    # Anticausal ROC: Re(s) < leftmost pole
     if roc_mode[0] == 'anticausal':
-        sigma_min = min(sigmas)
-
-        if sigma_min > 0:
+        if min(sigmas) > 0:
             return "Stability: Stable"
 
         return "Stability: Unstable"
 
-    # Noncausal ROC: vertical strip between pole real parts
     if roc_mode[0] == 'noncausal':
         strip = _compute_noncausal_strip(sigmas)
 
@@ -543,11 +527,15 @@ def get_roc_text():
 
 def get_fourier_axis_text():
     """
-    Determine whether the selected ROC contains the imaginary axis.
-
-    If the imaginary axis belongs to the ROC, H(jω) exists
-    as an ordinary frequency response.
+    Determine whether H(jω) exists as an ordinary
+    frequency response.
     """
+    tolerance = 1e-10
+
+    # A pole on the imaginary axis makes H(jω)
+    # undefined at the corresponding frequency
+    if any(abs(p.real) < tolerance for p in poles):
+        return "H(jω): Undefined, pole on jω axis"
 
     if roc_mode[0] == 'none':
         return "H(jω): Unknown, select ROC"
@@ -556,10 +544,6 @@ def get_fourier_axis_text():
         return "H(jω): No finite poles on jω axis"
 
     sigmas = [p.real for p in poles]
-    tolerance = 1e-10
-
-    if any(abs(sigma) < tolerance for sigma in sigmas):
-        return "H(jω): Undefined at a pole on jω"
 
     if roc_mode[0] == 'causal':
         if max(sigmas) < 0:
