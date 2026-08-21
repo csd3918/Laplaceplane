@@ -387,17 +387,68 @@ def build_transfer_function_text():
 
 def get_stability_text():
     """
-    Determine causal BIBO stability for a continuous-time LTI system.
-    For a causal system, stability requires all poles to lie in the left half-plane.
+    Determine BIBO stability using the selected Laplace ROC.
+
+    A continuous-time LTI system is BIBO stable when the ROC
+    contains the imaginary axis Re(s) = 0.
+
+    The transfer function must also be proper:
+        number of zeros <= number of poles
     """
+
+    # No ROC has been selected
+    if roc_mode[0] == 'none':
+        return "Stability: Unknown, select ROC"
+
+    # An improper rational transfer function is not BIBO stable
+    if len(zeros) > len(poles):
+        return "Stability: Unstable, improper H(s)"
+
+    # No finite poles
     if len(poles) == 0:
-        return "Causal stability: No poles"
+        return "Stability: Stable"
 
-    if all(p.real < 0 for p in poles):
-        return "Causal stability: Stable"
+    sigmas = [p.real for p in poles]
 
-    return "Causal stability: Unstable"
+    # Check explicitly for poles on the imaginary axis
+    tolerance = 1e-10
 
+    if any(abs(sigma) < tolerance for sigma in sigmas):
+        return "Stability: Unstable, pole on jω axis"
+
+    # Causal ROC: Re(s) > rightmost pole
+    if roc_mode[0] == 'causal':
+        sigma_max = max(sigmas)
+
+        if sigma_max < 0:
+            return "Stability: Stable"
+
+        return "Stability: Unstable"
+
+    # Anticausal ROC: Re(s) < leftmost pole
+    if roc_mode[0] == 'anticausal':
+        sigma_min = min(sigmas)
+
+        if sigma_min > 0:
+            return "Stability: Stable"
+
+        return "Stability: Unstable"
+
+    # Noncausal ROC: vertical strip between pole real parts
+    if roc_mode[0] == 'noncausal':
+        strip = _compute_noncausal_strip(sigmas)
+
+        if strip is None:
+            return "Stability: Undefined ROC"
+
+        sigma_left, sigma_right = strip
+
+        if sigma_left < 0 < sigma_right:
+            return "Stability: Stable"
+
+        return "Stability: Unstable"
+
+    return "Stability: Unknown"
 
 def get_roc_text():
     """
@@ -424,6 +475,56 @@ def get_roc_text():
 
     sigma_left, sigma_right = strip
     return f"ROC: {sigma_left:.3f} < Re(s) < {sigma_right:.3f}"
+
+
+def get_fourier_axis_text():
+    """
+    Determine whether the selected ROC contains the imaginary axis.
+
+    If the imaginary axis belongs to the ROC, H(jω) exists
+    as an ordinary frequency response.
+    """
+
+    if roc_mode[0] == 'none':
+        return "H(jω): Unknown, select ROC"
+
+    if len(poles) == 0:
+        return "H(jω): No finite poles on jω axis"
+
+    sigmas = [p.real for p in poles]
+    tolerance = 1e-10
+
+    if any(abs(sigma) < tolerance for sigma in sigmas):
+        return "H(jω): Undefined at a pole on jω"
+
+    if roc_mode[0] == 'causal':
+        if max(sigmas) < 0:
+            return "H(jω): Exists, jω axis is in ROC"
+
+        return "H(jω): jω axis is outside ROC"
+
+    if roc_mode[0] == 'anticausal':
+        if min(sigmas) > 0:
+            return "H(jω): Exists, jω axis is in ROC"
+
+        return "H(jω): jω axis is outside ROC"
+
+    if roc_mode[0] == 'noncausal':
+        strip = _compute_noncausal_strip(sigmas)
+
+        if strip is None:
+            return "H(jω): Undefined ROC"
+
+        sigma_left, sigma_right = strip
+
+        if sigma_left < 0 < sigma_right:
+            return "H(jω): Exists, jω axis is in ROC"
+
+        return "H(jω): jω axis is outside ROC"
+
+    return "H(jω): Unknown"
+
+
 def draw_info_panel():
     """
     Display system information instead of the group delay plot.
@@ -434,12 +535,21 @@ def draw_info_panel():
 
     if len(poles) > 0:
         rightmost_pole = max(poles, key=lambda p: p.real)
-        rightmost_text = f"Rightmost pole: {format_complex(rightmost_pole)}"
+        rightmost_text = (
+            f"Rightmost pole: {format_complex(rightmost_pole)}"
+        )
     else:
         rightmost_text = "Rightmost pole: None"
 
     stability_text = get_stability_text()
-    stability_color = "green" if "Stable" in stability_text and "Unstable" not in stability_text else "red"
+
+    # Select indicator color according to stability result
+    if stability_text == "Stability: Stable":
+        stability_color = "green"
+    elif "Unstable" in stability_text:
+        stability_color = "red"
+    else:
+        stability_color = "gray"
 
     info_lines = [
         build_transfer_function_text(),
@@ -449,7 +559,8 @@ def draw_info_panel():
         rightmost_text,
         "",
         stability_text,
-        get_roc_text()
+        get_roc_text(),
+        get_fourier_axis_text()
     ]
 
     info_text = "\n".join(info_lines)
@@ -470,7 +581,7 @@ def draw_info_panel():
         )
     )
 
-    # Add a small colored stability indicator
+    # Colored stability indicator
     ax_info.text(
         0.98,
         0.95,
@@ -481,6 +592,8 @@ def draw_info_panel():
         horizontalalignment='right',
         color=stability_color
     )
+
+
 
 # ============================================================
 # Function: update_plot()
