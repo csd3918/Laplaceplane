@@ -368,6 +368,7 @@ def format_factor(root):
 
     return f"({factor})"
 
+
 def build_transfer_function_text():
     """
     Build a readable factored representation of H(s)
