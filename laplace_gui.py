@@ -201,6 +201,17 @@ def compute_frequency_range(num_points=2000):
         num_points
     )
 
+def get_frequency_range_text():
+    """
+    Return the current automatic Bode frequency range.
+    """
+    omega = compute_frequency_range(num_points=2)
+
+    return (
+        f"Bode range: {omega[0]:.3g} to "
+        f"{omega[-1]:.3g} rad/s"
+    )
+
 # ============================================================
 # Function: compute_frequency_response()
 # ============================================================
@@ -920,16 +931,43 @@ def onclick(event):
 # ============================================================
 def undo(event):
     """
-    Undo the most recent addition of a pole or zero.
-    Removes it from both the plot and the history stack.
+    Undo the most recent action.
+
+    Supported actions:
+        - Addition of a zero
+        - Addition of a pole
+        - Movement of a zero or pole
     """
     if not history:
+        print("Δεν υπάρχει ενέργεια για αναίρεση.")
         return
-    last = history.pop()
-    if last[0] == 'zero' and last[1] in zeros:
-        zeros.remove(last[1])
-    elif last[0] == 'pole' and last[1] in poles:
-        poles.remove(last[1])
+
+    last_action = history.pop()
+
+    # Undo a movement
+    if last_action[0] == 'move':
+        _, typ, index, old_position, new_position = last_action
+
+        if typ == 'zero' and index < len(zeros):
+            zeros[index] = old_position
+
+        elif typ == 'pole' and index < len(poles):
+            poles[index] = old_position
+
+    # Undo the addition of a zero
+    elif last_action[0] == 'zero':
+        position = last_action[1]
+
+        if position in zeros:
+            zeros.remove(position)
+
+    # Undo the addition of a pole
+    elif last_action[0] == 'pole':
+        position = last_action[1]
+
+        if position in poles:
+            poles.remove(position)
+
     update_plot()
 
 
@@ -1113,18 +1151,48 @@ def on_motion(event):
 # ============================================================
 def on_release(event):
     """
-    Called when the mouse button is released after dragging a point.
-    Finalizes the move and adds it to the history stack.
+    Finish dragging a pole or zero and store the movement
+    as a separate undoable action.
     """
     global dragging_point
-    if dragging_point is not None:
-        typ, i = dragging_point
-        if typ == 'zero' and i < len(zeros):
-            history.append(('zero', zeros[i]))
-        elif typ == 'pole' and i < len(poles):
-            history.append(('pole', poles[i]))
-    dragging_point = None
 
+    if dragging_point is None:
+        return
+
+    typ, index = dragging_point
+
+    old_position = complex(
+        drag_start_fixed[0],
+        drag_start_fixed[1]
+    )
+
+    if typ == 'zero' and index < len(zeros):
+        new_position = zeros[index]
+
+    elif typ == 'pole' and index < len(poles):
+        new_position = poles[index]
+
+    else:
+        dragging_point = None
+        drag_start_fixed[0] = None
+        drag_start_fixed[1] = None
+        return
+
+    # Store the movement only if the position actually changed
+    if abs(new_position - old_position) > 1e-12:
+        history.append(
+            (
+                'move',
+                typ,
+                index,
+                old_position,
+                new_position
+            )
+        )
+
+    dragging_point = None
+    drag_start_fixed[0] = None
+    drag_start_fixed[1] = None
 
 # ============================================================
 # GUI Buttons Setup
