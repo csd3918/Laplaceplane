@@ -451,6 +451,7 @@ def get_stability_text():
 
     return "Stability: Unknown"
 
+
 def get_roc_text():
     """
     Return a text description of the current Laplace ROC.
