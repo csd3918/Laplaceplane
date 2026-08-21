@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="bbef4fdc-e695-4a58-9ea8-684003247572" name="Changes" comment="Day 3 step6/11 complete" />
+    <list default="true" id="bbef4fdc-e695-4a58-9ea8-684003247572" name="Changes" comment="Day 4 step 6/11 complete">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/laplace_gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/laplace_gui.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -183,7 +186,15 @@
       <option name="project" value="LOCAL" />
       <updated>1785064887769</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="Day 4 step 6/11 complete">
+      <option name="closed" value="true" />
+      <created>1785064957658</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1785064957658</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -205,7 +216,8 @@
     <MESSAGE value="Day 3 step5/11 complete" />
     <MESSAGE value="Day 3 step6.6/11 complete" />
     <MESSAGE value="Day 3 step6/11 complete" />
-    <option name="LAST_COMMIT_MESSAGE" value="Day 3 step6/11 complete" />
+    <MESSAGE value="Day 4 step 6/11 complete" />
+    <option name="LAST_COMMIT_MESSAGE" value="Day 4 step 6/11 complete" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

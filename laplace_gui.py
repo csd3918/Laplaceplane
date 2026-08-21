@@ -334,28 +334,56 @@ def draw_roc(lim):
 
 def format_complex(c):
     """
-    Format a complex number for display in the S-plane.
+    Format a complex number for general display.
     """
-    return f"{c.real:.2f}{c.imag:+.2f}j"
+    real = 0.0 if abs(c.real) < 1e-10 else c.real
+    imag = 0.0 if abs(c.imag) < 1e-10 else c.imag
 
+    return f"{real:.2f}{imag:+.2f}j"
+
+def format_factor(root):
+    """
+    Format the factor (s - root) in a readable form.
+
+    Examples:
+        root = -1       -> (s + 1.00)
+        root = 2        -> (s - 2.00)
+        root = -1+2j    -> (s + 1.00 - 2.00j)
+        root = 1-2j     -> (s - 1.00 + 2.00j)
+    """
+    real = 0.0 if abs(root.real) < 1e-10 else root.real
+    imag = 0.0 if abs(root.imag) < 1e-10 else root.imag
+
+    factor = "s"
+
+    if real < 0:
+        factor += f" + {abs(real):.2f}"
+    elif real > 0:
+        factor += f" - {real:.2f}"
+
+    if imag < 0:
+        factor += f" + {abs(imag):.2f}j"
+    elif imag > 0:
+        factor += f" - {imag:.2f}j"
+
+    return f"({factor})"
 
 def build_transfer_function_text():
     """
-    Build a readable textual representation of H(s)
-    based on the current zeros and poles.
+    Build a readable factored representation of H(s)
+    from the current zeros and poles.
     """
     if len(zeros) == 0:
         numerator = "1"
     else:
-        numerator = " ".join([f"(s - ({format_complex(z)}))" for z in zeros])
+        numerator = "".join(format_factor(z) for z in zeros)
 
     if len(poles) == 0:
         denominator = "1"
     else:
-        denominator = " ".join([f"(s - ({format_complex(p)}))" for p in poles])
+        denominator = "".join(format_factor(p) for p in poles)
 
     return f"H(s) = {numerator} / {denominator}"
-
 
 def get_stability_text():
     """
@@ -523,42 +551,58 @@ def update_plot():
 # ============================================================
 def plot_final_3d(event):
     """
-    Render a 3D surface visualization of the magnitude response |H(z)|
-    over the complex Z-plane. This helps users understand how poles and zeros
-    shape the magnitude of H(z) outside the unit circle.
+    Render a 3D surface visualization of the magnitude response |H(s)|
+    over the complex Laplace S-plane.
 
-    Triggered when the "Τελική 3D Προβολή" button is clicked.
+    Poles appear as peaks and zeros appear as valleys on the magnitude surface.
+    This helps visualize the geometric influence of poles and zeros in the
+    Laplace domain.
     """
-    LINES_STEP = 2  # Grid sampling rate for drawn surface lines
+    LINES_STEP = 2
     POINT_STEP = 2
 
-    # Define the grid for the complex Z-plane
+    # Define the grid for the complex S-plane
     N = 160
-    x = np.linspace(-2, 2, N)
-    y = np.linspace(-2, 2, N)
-    X, Y = np.meshgrid(x, y)
-    Zc = X + 1j * Y  # Complex coordinates for each grid point
+    sigma = np.linspace(-5, 5, N)
+    omega = np.linspace(-5, 5, N)
 
-    # Compute H(z) = numerator / denominator on this grid
-    num = np.ones_like(Zc, dtype=complex)
-    den = np.ones_like(Zc, dtype=complex)
-    for z in zeros:
-        num *= (Zc - z)
-    for p in poles:
-        den *= (Zc - p)
-    H = num / den
-    Hmag = np.clip(np.abs(H), 0, 6)  # Limit magnitude for clearer visualization
+    Sigma, Omega = np.meshgrid(sigma, omega)
 
-    # Create a new 3D figure for the surface plot
+    # Complex coordinates: s = sigma + j omega
+    Sc = Sigma + 1j * Omega
+
+    # Compute H(s) = numerator / denominator over the S-plane
+    num = np.ones_like(Sc, dtype=complex)
+    den = np.ones_like(Sc, dtype=complex)
+
+    for zero in zeros:
+        num *= (Sc - zero)
+
+    for pole in poles:
+        den *= (Sc - pole)
+
+    # Avoid division warnings near poles
+    with np.errstate(divide='ignore', invalid='ignore'):
+        H = num / den
+        Hmag = np.abs(H)
+
+    # Clip magnitude for clearer visualization
+    Hmag = np.nan_to_num(Hmag, nan=0.0, posinf=6.0, neginf=0.0)
+    Hmag = np.clip(Hmag, 0, 6)
+
+    # Create a new 3D figure
     fig3d = plt.figure(figsize=(10, 8))
     ax = fig3d.add_subplot(111, projection='3d')
-    ax.set_title("Μέτρο του Μετασχ. Ζ |H(z)|", fontsize=12)
-    ax.set_xlabel("Πραγματικό μέρος (Re[z])")
-    ax.set_ylabel("Φανταστικό μέρος (Im[z])")
-    ax.set_zlabel("|H(z)|")
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
+
+    ax.set_title("Μέτρο της Συνάρτησης Μεταφοράς |H(s)|", fontsize=12)
+    ax.set_xlabel("Πραγματικό μέρος σ = Re(s)")
+    ax.set_ylabel("Φανταστικό μέρος ω = Im(s)")
+    ax.set_zlabel("|H(s)|")
+
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
     ax.set_zlim(0, 6)
+
     ax.view_init(elev=35, azim=130)
     ax.set_box_aspect([1, 1, 0.8])
 
@@ -566,30 +610,35 @@ def plot_final_3d(event):
     norm = colors.Normalize(vmin=0, vmax=6)
     cmap = matplotlib.colormaps['jet']
 
-    # Helper function to create colored 3D line segments (for mesh visualization)
+    # Helper function to create colored 3D line segments
     def collection_from_grid_lines(xs, ys, zs, lw=0.8, alpha=0.95):
         segs, vals = [], []
         n_lines, n_pts = xs.shape
+
         for i in range(n_lines):
             for j in range(n_pts - 1):
                 p0 = (xs[i, j], ys[i, j], zs[i, j])
                 p1 = (xs[i, j + 1], ys[i, j + 1], zs[i, j + 1])
+
                 segs.append([p0, p1])
                 vals.append(0.5 * (zs[i, j] + zs[i, j + 1]))
+
         lc = Line3DCollection(segs, linewidth=lw, alpha=alpha)
         lc.set_cmap(cmap)
         lc.set_norm(norm)
         lc.set_array(np.asarray(vals))
+
         return lc
 
-    # Draw the grid lines for both directions (rows and columns)
-    xs_row = X[::LINES_STEP, ::POINT_STEP]
-    ys_row = Y[::LINES_STEP, ::POINT_STEP]
+    # Draw grid lines along sigma direction
+    xs_row = Sigma[::LINES_STEP, ::POINT_STEP]
+    ys_row = Omega[::LINES_STEP, ::POINT_STEP]
     zs_row = Hmag[::LINES_STEP, ::POINT_STEP]
     ax.add_collection3d(collection_from_grid_lines(xs_row, ys_row, zs_row))
 
-    xs_col = X[::POINT_STEP, ::LINES_STEP].T
-    ys_col = Y[::POINT_STEP, ::LINES_STEP].T
+    # Draw grid lines along omega direction
+    xs_col = Sigma[::POINT_STEP, ::LINES_STEP].T
+    ys_col = Omega[::POINT_STEP, ::LINES_STEP].T
     zs_col = Hmag[::POINT_STEP, ::LINES_STEP].T
     ax.add_collection3d(collection_from_grid_lines(xs_col, ys_col, zs_col))
 
@@ -933,7 +982,7 @@ btn_reset.on_clicked(reset)
 btn_load = Button(ax_load, "Load")
 btn_load.on_clicked(load)
 
-btn_3d = Button(ax_3d, "Τελική 3D Προβολή")
+btn_3d = Button(ax_3d, "3D Προβολή |H(s)|")
 btn_3d.on_clicked(plot_final_3d)
 
 # ============================================================
