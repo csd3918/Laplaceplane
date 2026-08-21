@@ -150,6 +150,17 @@ ax_phase.set_xlabel(r"$\omega$ [rad/s]")
 ax_info.axis('off')
 ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
 
+def get_imaginary_axis_poles(tolerance=1e-9):
+    """
+    Return poles located on or numerically very close
+    to the imaginary axis Re(s) = 0.
+    """
+    return [
+        pole
+        for pole in poles
+        if abs(pole.real) <= tolerance
+    ]
+
 # ============================================================
 # Function: compute_frequency_response()
 # ============================================================
@@ -164,7 +175,7 @@ def compute_frequency_response():
         3. Clear and redraw the corresponding plots.
     """
     # Sample ω from -π to π for evaluation on the unit circle
-    omega = np.logspace(-2, 3, 1000)
+    omega = np.logspace(-2, 3, 2000)
     s = 1j * omega  # s = jω frequency of continious time system's response
 
     # Initialize numerator and denominator of H(s)
@@ -178,24 +189,75 @@ def compute_frequency_response():
         denominator *= (s - pole)
 
     # Compute the frequency response
-    H = numerator / denominator
-    H_mag = 20 * np.log10(np.maximum(np.abs(H),1e-12))
-    H_phase = np.unwrap(np.angle(H)) * 180 / np.pi  # unwrap avoids phase discontinuities
+    with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
+        H = numerator / denominator
+    H_abs = np.abs(H)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        H_mag_db = 20 * np.log10(H_abs)
+
+    H_phase_rad = np.unwrap(np.angle(H))
+    H_phase_deg = np.degrees(H_phase_rad)
+
+    # Create copies used only for safe plotting
+    H_mag_plot = H_mag_db.copy()
+    H_phase_plot = H_phase_deg.copy()
+
+    # Replace infinite or invalid values with NaN
+    # Matplotlib will leave a gap at singularities
+    H_mag_plot[~np.isfinite(H_mag_plot)] = np.nan
+    H_phase_plot[~np.isfinite(H_phase_plot)] = np.nan
+
+    # Visual limits for the magnitude diagram
+    MAG_MIN_DB = -120
+    MAG_MAX_DB = 120
+
+    H_mag_plot = np.clip(
+        H_mag_plot,
+        MAG_MIN_DB,
+        MAG_MAX_DB
+    )
 
     # ------------------------------------------------------------
     # Magnitude plot
     # ------------------------------------------------------------
     ax_mag.clear()
-    ax_mag.semilogx(omega, H_mag, color='red', linewidth=2)
+    ax_mag.semilogx(omega, H_mag_plot, color='red', linewidth=2)
     style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
 
     # ------------------------------------------------------------
     # Phase plot
     # ------------------------------------------------------------
     ax_phase.clear()
-    ax_phase.semilogx(omega, H_phase, color='red', linewidth=2)
+    ax_phase.semilogx(omega, H_phase_plot, color='red', linewidth=2)
     style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
     ax_phase.set_xlabel(r"$\omega$ [rad/s]")
+
+    #--------------------------------------------------------
+    # Mark frequencies corresponding to poles on the jω axis
+    #--------------------------------------------------------
+    axis_frequencies = sorted({
+        abs(pole.imag)
+        for pole in get_imaginary_axis_poles()
+        if omega[0] <= abs(pole.imag) <= omega[-1]
+    })
+
+    for pole_frequency in axis_frequencies:
+        ax_mag.axvline(
+            pole_frequency,
+            color='darkorange',
+            linestyle='--',
+            linewidth=1.5,
+            alpha=0.9
+        )
+
+        ax_phase.axvline(
+            pole_frequency,
+            color='darkorange',
+            linestyle='--',
+            linewidth=1.5,
+            alpha=0.9
+        )
 
 # ============================================================
 # Helper function: _compute_noncausal_band()
@@ -545,6 +607,19 @@ def draw_info_panel():
 
     stability_text = get_stability_text()
 
+    axis_poles = get_imaginary_axis_poles()
+
+    if axis_poles:
+        axis_poles_text = (
+                "Warning: pole(s) on jω axis: "
+                + ", ".join(
+            format_complex(pole)
+            for pole in axis_poles
+        )
+        )
+    else:
+        axis_poles_text = "No poles on jω axis"
+
     # Select indicator color according to stability result
     if stability_text == "Stability: Stable":
         stability_color = "green"
@@ -562,7 +637,8 @@ def draw_info_panel():
         "",
         stability_text,
         get_roc_text(),
-        get_fourier_axis_text()
+        get_fourier_axis_text(),
+        axis_poles_text
     ]
 
     info_text = "\n".join(info_lines)
