@@ -66,6 +66,8 @@ roc_mode = ['none']
 roc_im = [None]
 roc_label = [None]
 
+status_message = [None]
+
 # ============================================================
 # Figure and Axes Layout
 # ============================================================
@@ -875,56 +877,197 @@ def plot_final_3d(event):
 # ============================================================
 # Mouse Event: onclick()
 # ============================================================
-def onclick(event):
-    """
-    Handles mouse clicks on the Z-plane.
+# def onclick(event):
+#     """
+#     Handles mouse clicks on the Z-plane.
+#
+#     Left-click  → add zeros
+#     Right-click → add poles
+#
+#     Supports:
+#         - Multiple points per click (count_value)
+#         - Automatic conjugate addition (if enabled)
+#         - Avoids overlapping points
+#     """
+#     if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
+#         return
+#
+#     # Prevent overlapping identical points if adding single ones
+#     if (not add_conjugate[0] and count_value[0] == 1):
+#         click = complex(event.xdata, event.ydata)
+#         thresh = 0.12
+#         for z in zeros:
+#             if abs(z - click) < thresh:
+#                 return
+#         for p in poles:
+#             if abs(p - click) < thresh:
+#                 return
+#
+#     # Convert click position to complex number
+#     z_point = complex(event.xdata, event.ydata)
+#     conj_point = z_point.conjugate()
+#
+#     # Left button: add zeros
+#     if event.button == 1:
+#         for _ in range(count_value[0]):
+#             zeros.append(z_point)
+#             history.append(('zero', z_point))
+#             if add_conjugate[0] and abs(z_point.imag) > 1e-12:
+#                 zeros.append(conj_point)
+#                 history.append(('zero', conj_point))
+#
+#     # Right button: add poles
+#     elif event.button == 3:
+#         for _ in range(count_value[0]):
+#             poles.append(z_point)
+#             history.append(('pole', z_point))
+#             if add_conjugate[0] and abs(z_point.imag) > 1e-12:
+#                 poles.append(conj_point)
+#                 history.append(('pole', conj_point))
+#
+#     update_plot()
 
-    Left-click  → add zeros
-    Right-click → add poles
 
-    Supports:
-        - Multiple points per click (count_value)
-        - Automatic conjugate addition (if enabled)
-        - Avoids overlapping points
+def show_status_message(message, color='darkorange'):
     """
-    if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
+    Display a temporary status message inside the S-plane.
+    """
+    if status_message[0] is not None:
+        try:
+            status_message[0].remove()
+        except Exception:
+            pass
+
+    status_message[0] = ax_plane.text(
+        0.5,
+        0.98,
+        message,
+        transform=ax_plane.transAxes,
+        horizontalalignment='center',
+        verticalalignment='top',
+        fontsize=10,
+        color=color,
+        bbox=dict(
+            facecolor='white',
+            edgecolor=color,
+            alpha=0.9
+        ),
+        zorder=20
+    )
+
+    fig.canvas.draw_idle()
+
+def on_mouse_press(event):
+    """
+    Handle mouse button presses on the S-plane.
+
+    Priority:
+        1. If the click is close to an existing pole or zero,
+           start dragging that point.
+        2. Otherwise, add a new point:
+           - Left click: add zero
+           - Right click: add pole
+
+    Dragging is disabled when conjugate mode is active
+    or when count_value is greater than 1.
+    """
+    global dragging_point
+
+    # Ignore clicks outside the S-plane
+    if (
+        event.inaxes != ax_plane
+        or event.xdata is None
+        or event.ydata is None
+    ):
         return
 
-    # Prevent overlapping identical points if adding single ones
-    if (not add_conjugate[0] and count_value[0] == 1):
-        click = complex(event.xdata, event.ydata)
-        thresh = 0.12
-        for z in zeros:
-            if abs(z - click) < thresh:
-                return
-        for p in poles:
-            if abs(p - click) < thresh:
+    click_position = complex(event.xdata, event.ydata)
+    selection_threshold = 0.1
+
+    # --------------------------------------------------------
+    # First priority: detect an existing zero
+    # --------------------------------------------------------
+    for index, zero in enumerate(zeros):
+        if abs(zero - click_position) < selection_threshold:
+
+            # Prevent accidental insertion on an existing point
+            if add_conjugate[0] or count_value[0] > 1:
+                print(
+                    "Η μετακίνηση είναι απενεργοποιημένη όταν "
+                    "Συζυγή: ON ή Πλήθος > 1."
+                )
                 return
 
-    # Convert click position to complex number
-    z_point = complex(event.xdata, event.ydata)
-    conj_point = z_point.conjugate()
+            dragging_point = ('zero', index)
 
-    # Left button: add zeros
+            drag_start_fixed[0] = zero.real
+            drag_start_fixed[1] = zero.imag
+
+            return
+
+    # --------------------------------------------------------
+    # Second priority: detect an existing pole
+    # --------------------------------------------------------
+    for index, pole in enumerate(poles):
+        if abs(pole - click_position) < selection_threshold:
+
+            # Prevent accidental insertion on an existing point
+            if add_conjugate[0] or count_value[0] > 1:
+                message = (
+                    "Η μετακίνηση είναι απενεργοποιημένη όταν "
+                    "Συζυγή: ON ή Πλήθος > 1"
+                )
+
+                print(message)
+                show_status_message(message)
+
+                return
+
+            dragging_point = ('pole', index)
+
+            drag_start_fixed[0] = pole.real
+            drag_start_fixed[1] = pole.imag
+
+            return
+
+    # --------------------------------------------------------
+    # No existing point was selected.
+    # Add a new zero or pole.
+    # --------------------------------------------------------
+    new_point = click_position
+    conjugate_point = new_point.conjugate()
+
+    # Left mouse button: add zero
     if event.button == 1:
         for _ in range(count_value[0]):
-            zeros.append(z_point)
-            history.append(('zero', z_point))
-            if add_conjugate[0] and abs(z_point.imag) > 1e-12:
-                zeros.append(conj_point)
-                history.append(('zero', conj_point))
+            zeros.append(new_point)
+            history.append(('zero', new_point))
 
-    # Right button: add poles
+            if (
+                add_conjugate[0]
+                and abs(new_point.imag) > 1e-12
+            ):
+                zeros.append(conjugate_point)
+                history.append(('zero', conjugate_point))
+
+    # Right mouse button: add pole
     elif event.button == 3:
         for _ in range(count_value[0]):
-            poles.append(z_point)
-            history.append(('pole', z_point))
-            if add_conjugate[0] and abs(z_point.imag) > 1e-12:
-                poles.append(conj_point)
-                history.append(('pole', conj_point))
+            poles.append(new_point)
+            history.append(('pole', new_point))
+
+            if (
+                add_conjugate[0]
+                and abs(new_point.imag) > 1e-12
+            ):
+                poles.append(conjugate_point)
+                history.append(('pole', conjugate_point))
+
+    # Ignore other mouse buttons
+    else:
+        return
 
     update_plot()
-
 
 # ============================================================
 # Undo last action
@@ -1078,36 +1221,36 @@ def add_manual_pole(event):
 # ============================================================
 # Mouse Event: on_press()
 # ============================================================
-def on_press(event):
-    """
-    Detect when the user clicks on a zero or pole to start dragging it.
-
-    Notes:
-        - Dragging is disabled when 'add_conjugate' is ON or multiple points
-          (count_value > 1) are active, to prevent inconsistencies.
-        - Records which point is being dragged and its starting position.
-    """
-    global dragging_point
-    if add_conjugate[0] or count_value[0] > 1:
-        print('Η μετακίνηση απενεργοποιημένη όταν Συζυγή:ON ή Πλήθος>1 (τα κλειδώματα επιτρέπονται)')
-        return
-    if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
-        return
-    click = complex(event.xdata, event.ydata)
-
-    # Check if the click is near a zero
-    for i, z in enumerate(zeros):
-        if abs(z - click) < 0.1:
-            dragging_point = ('zero', i)
-            drag_start_fixed[0], drag_start_fixed[1] = z.real, z.imag
-            return
-
-    # Check if the click is near a pole
-    for i, p in enumerate(poles):
-        if abs(p - click) < 0.1:
-            dragging_point = ('pole', i)
-            drag_start_fixed[0], drag_start_fixed[1] = p.real, p.imag
-            return
+# def on_press(event):
+#     """
+#     Detect when the user clicks on a zero or pole to start dragging it.
+#
+#     Notes:
+#         - Dragging is disabled when 'add_conjugate' is ON or multiple points
+#           (count_value > 1) are active, to prevent inconsistencies.
+#         - Records which point is being dragged and its starting position.
+#     """
+#     global dragging_point
+#     if add_conjugate[0] or count_value[0] > 1:
+#         print('Η μετακίνηση απενεργοποιημένη όταν Συζυγή:ON ή Πλήθος>1 (τα κλειδώματα επιτρέπονται)')
+#         return
+#     if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
+#         return
+#     click = complex(event.xdata, event.ydata)
+#
+#     # Check if the click is near a zero
+#     for i, z in enumerate(zeros):
+#         if abs(z - click) < 0.1:
+#             dragging_point = ('zero', i)
+#             drag_start_fixed[0], drag_start_fixed[1] = z.real, z.imag
+#             return
+#
+#     # Check if the click is near a pole
+#     for i, p in enumerate(poles):
+#         if abs(p - click) < 0.1:
+#             dragging_point = ('pole', i)
+#             drag_start_fixed[0], drag_start_fixed[1] = p.real, p.imag
+#             return
 
 
 # ============================================================
@@ -1338,15 +1481,31 @@ _refresh_lock_labels()
 # Connect Mouse Event Handlers
 # ============================================================
 
-# Button press → add or start dragging
-fig.canvas.mpl_connect('button_press_event', onclick)
-fig.canvas.mpl_connect('button_press_event', on_press)
+# # Button press → add or start dragging
+# fig.canvas.mpl_connect('button_press_event', onclick)
+# fig.canvas.mpl_connect('button_press_event', on_press)
+#
+# # Mouse move → update dragging
+# fig.canvas.mpl_connect('motion_notify_event', on_motion)
+#
+# # Button release → finish dragging
+# fig.canvas.mpl_connect('button_release_event', on_release)
 
-# Mouse move → update dragging
-fig.canvas.mpl_connect('motion_notify_event', on_motion)
+fig.canvas.mpl_connect(
+    'button_press_event',
+    on_mouse_press
+)
 
-# Button release → finish dragging
-fig.canvas.mpl_connect('button_release_event', on_release)
+fig.canvas.mpl_connect(
+    'motion_notify_event',
+    on_motion
+)
+
+fig.canvas.mpl_connect(
+    'button_release_event',
+    on_release
+)
+
 
 # ============================================================
 # Initial Rendering
