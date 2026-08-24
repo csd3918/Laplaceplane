@@ -1030,6 +1030,7 @@ def on_mouse_press(event):
 
             return
 
+
     # --------------------------------------------------------
     # No existing point was selected.
     # Add a new zero or pole.
