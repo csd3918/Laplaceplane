@@ -1,16 +1,22 @@
 # ============================================================
-# laplaceplane_gui.py
+# laplace_gui_clean.py
 # ------------------------------------------------------------
-# Interactive Z-plane visualizer for poles and zeros of discrete-time systems.
+# Interactive S-plane visualizer for poles and zeros of
+# continuous-time LTI systems.
 #
 # Features:
-#   - Interactive placement of poles and zeros on the Z-plane.
-#   - Manual insertion via text input.
-#   - Automatic computation of magnitude, phase, and group delay responses.
-#   - Support for conjugate points, undo, save/load (JSON), and region of convergence (ROC).
-#   - 3D visualization of |H(z)| over the complex Z-plane.
-#   - Locking movement along real/imag axes, ROC shading, and multiple insertions per click.
-#
+#   - Interactive placement of poles and zeros in the S-plane.
+#   - Real-time Bode magnitude and phase responses.
+#   - Automatic logarithmic frequency range selection.
+#   - Manual insertion of complex poles and zeros.
+#   - Drag-and-drop movement of existing points.
+#   - Optional automatic addition of conjugate points.
+#   - Laplace Region of Convergence visualization.
+#   - BIBO stability and Fourier-axis existence checks.
+#   - Information panel with H(s) and system properties.
+#   - Safe handling of poles on the imaginary axis.
+#   - Three-dimensional visualization of |H(s)|.
+#   - Undo, reset, save, and load functionality.
 # ============================================================
 
 import matplotlib
@@ -21,7 +27,6 @@ import numpy as np
 import json
 import os
 from matplotlib.widgets import Button, TextBox, RadioButtons
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib import colors
@@ -99,23 +104,19 @@ ax_add_pole = plt.axes([0.84, 0.87, 0.14, 0.04])
 # Radio buttons area for ROC (Region of Convergence)
 ax_roc = plt.axes([0.43, 0.87, 0.09, 0.12])
 
-# Z-plane diagram (left center)
+# S-plane diagram (left center)
 ax_plane = plt.axes([0.05, 0.15, 0.35, 0.60])
 
-# Right-side plots: magnitude, phase, and group delay responses
+# Right-side panels: Bode magnitude, Bode phase, and system information
 ax_mag = plt.axes([0.45, 0.62, 0.50, 0.15])
 ax_phase = plt.axes([0.45, 0.40, 0.50, 0.15])
 ax_info = plt.axes([0.45, 0.16, 0.50, 0.15])
 
 # ============================================================
-# Setup Laplace-plane axes appearance
+# Setup S-plane axes appearance
 # ============================================================
 
-# Precompute unit circle points for visualization of |z|=1 boundary
-# theta = np.linspace(0, 2*np.pi, 300)
-# unit_circle, = ax_plane.plot(np.cos(theta), np.sin(theta), 'b:', linewidth=1.5)
-
-# Configure axis limits, titles, and labels for Z-plane
+# Configure axis limits, titles, and labels for S-plane
 ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών", pad=8)
 ax_plane.set_xlim(-1.5, 1.5)
 ax_plane.set_ylim(-1.5, 1.5)
@@ -136,19 +137,16 @@ def style_mag_phase(ax, title, ylabel):
     Apply consistent formatting and tick labels for all frequency-domain plots.
     """
     ax.set_title(title, pad=6)
-    # ax.set_xlim(-np.pi, np.pi)
     ax.set_ylabel(ylabel)
-    # ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
-    # ax.set_xticklabels(['-π', '-π/2', '0', 'π/2', 'π'])
     ax.grid(True)
 
 
-# Apply formatting to magnitude, phase, and group delay subplots
+# Apply consistent formatting to the Bode plots
 style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
 style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
 ax_phase.set_xlabel(r"$\omega$ [rad/s]")
 
-#System information panel
+# System information panel
 ax_info.axis('off')
 ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
 
@@ -219,17 +217,18 @@ def get_frequency_range_text():
 # ============================================================
 def compute_frequency_response():
     """
-    Compute and display the frequency response H(e^{jω}) of the discrete-time system
+    Compute and display the frequency response H(jω) of the continuous-time system
     defined by the current poles and zeros.
 
     Steps:
-        1. Evaluate H(z) = Π(z - zero) / Π(z - pole) over points on the unit circle.
-        2. Compute magnitude, unwrapped phase, and numerical group delay.
-        3. Clear and redraw the corresponding plots.
+        1. Build an automatic logarithmic frequency grid.
+        2. Evaluate H(s) along the imaginary axis, where s = jω.
+        3. Convert magnitude to decibels and phase to degrees.
+        4. Redraw the Bode magnitude and phase plots.
     """
-    # Sample ω from -π to π for evaluation on the unit circle
+    # Evaluate the transfer function along the positive imaginary axis.
     omega = compute_frequency_range(num_points=2000)
-    s = 1j * omega  # s = jω frequency of continious time system's response
+    s = 1j * omega
 
     # Initialize numerator and denominator of H(s)
     numerator = np.ones_like(s, dtype=complex)
@@ -313,7 +312,7 @@ def compute_frequency_response():
         )
 
 # ============================================================
-# Helper function: _compute_noncausal_band()
+# Helper function: _compute_noncausal_strip()
 # ============================================================
 def _compute_noncausal_strip(sigmas):
     """
@@ -628,7 +627,7 @@ def get_fourier_axis_text():
 
 def draw_info_panel():
     """
-    Display system information instead of the group delay plot.
+    Display the transfer function and key system properties.
     """
     ax_info.clear()
     ax_info.axis('off')
@@ -715,16 +714,16 @@ def draw_info_panel():
 # ============================================================
 def update_plot():
     """
-    Redraw the entire Z-plane diagram, including:
+    Redraw the entire S-plane diagram, including:
         - Poles and zeros
-        - Unit circle and grid
         - ROC shading
-        - Frequency response (magnitude, phase, group delay)
+        - Bode magnitude and phase responses
+        - System information panel
 
     This function is called whenever user actions modify the system
     (adding/removing points, dragging, loading, etc.).
     """
-    # Clear the Z-plane axes
+    # Clear the S-plane axes
     ax_plane.cla()
     ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών στο χώρο Laplace", pad=8)
 
@@ -736,7 +735,7 @@ def update_plot():
     else:
         lim = 1.5
 
-    # Reapply grid, labels, and unit circle
+    # Reapply grid, labels
     ax_plane.set_xlim(-lim, lim)
     ax_plane.set_ylim(-lim, lim)
     ax_plane.set_aspect('equal')
@@ -875,58 +874,8 @@ def plot_final_3d(event):
 
 
 # ============================================================
-# Mouse Event: onclick()
+# Mouse interaction helpers
 # ============================================================
-# def onclick(event):
-#     """
-#     Handles mouse clicks on the Z-plane.
-#
-#     Left-click  → add zeros
-#     Right-click → add poles
-#
-#     Supports:
-#         - Multiple points per click (count_value)
-#         - Automatic conjugate addition (if enabled)
-#         - Avoids overlapping points
-#     """
-#     if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
-#         return
-#
-#     # Prevent overlapping identical points if adding single ones
-#     if (not add_conjugate[0] and count_value[0] == 1):
-#         click = complex(event.xdata, event.ydata)
-#         thresh = 0.12
-#         for z in zeros:
-#             if abs(z - click) < thresh:
-#                 return
-#         for p in poles:
-#             if abs(p - click) < thresh:
-#                 return
-#
-#     # Convert click position to complex number
-#     z_point = complex(event.xdata, event.ydata)
-#     conj_point = z_point.conjugate()
-#
-#     # Left button: add zeros
-#     if event.button == 1:
-#         for _ in range(count_value[0]):
-#             zeros.append(z_point)
-#             history.append(('zero', z_point))
-#             if add_conjugate[0] and abs(z_point.imag) > 1e-12:
-#                 zeros.append(conj_point)
-#                 history.append(('zero', conj_point))
-#
-#     # Right button: add poles
-#     elif event.button == 3:
-#         for _ in range(count_value[0]):
-#             poles.append(z_point)
-#             history.append(('pole', z_point))
-#             if add_conjugate[0] and abs(z_point.imag) > 1e-12:
-#                 poles.append(conj_point)
-#                 history.append(('pole', conj_point))
-#
-#     update_plot()
-
 
 def show_status_message(message, color='darkorange'):
     """
@@ -1183,7 +1132,7 @@ def reset(event):
 # ============================================================
 def save(event):
     """
-    Save the current poles and zeros into 'zplane_data.json'.
+    Save the current poles and zeros into 'splane_data.json'.
     Each is stored as a pair [real, imag].
     """
     data = {
@@ -1315,41 +1264,6 @@ def add_manual_pole(event):
         )
 
     update_plot()
-# ============================================================
-# Mouse Event: on_press()
-# ============================================================
-# def on_press(event):
-#     """
-#     Detect when the user clicks on a zero or pole to start dragging it.
-#
-#     Notes:
-#         - Dragging is disabled when 'add_conjugate' is ON or multiple points
-#           (count_value > 1) are active, to prevent inconsistencies.
-#         - Records which point is being dragged and its starting position.
-#     """
-#     global dragging_point
-#     if add_conjugate[0] or count_value[0] > 1:
-#         print('Η μετακίνηση απενεργοποιημένη όταν Συζυγή:ON ή Πλήθος>1 (τα κλειδώματα επιτρέπονται)')
-#         return
-#     if event.inaxes != ax_plane or event.xdata is None or event.ydata is None:
-#         return
-#     click = complex(event.xdata, event.ydata)
-#
-#     # Check if the click is near a zero
-#     for i, z in enumerate(zeros):
-#         if abs(z - click) < 0.1:
-#             dragging_point = ('zero', i)
-#             drag_start_fixed[0], drag_start_fixed[1] = z.real, z.imag
-#             return
-#
-#     # Check if the click is near a pole
-#     for i, p in enumerate(poles):
-#         if abs(p - click) < 0.1:
-#             dragging_point = ('pole', i)
-#             drag_start_fixed[0], drag_start_fixed[1] = p.real, p.imag
-#             return
-
-
 # ============================================================
 # Mouse Event: on_motion()
 # ============================================================
@@ -1577,16 +1491,6 @@ _refresh_lock_labels()
 # ============================================================
 # Connect Mouse Event Handlers
 # ============================================================
-
-# # Button press → add or start dragging
-# fig.canvas.mpl_connect('button_press_event', onclick)
-# fig.canvas.mpl_connect('button_press_event', on_press)
-#
-# # Mouse move → update dragging
-# fig.canvas.mpl_connect('motion_notify_event', on_motion)
-#
-# # Button release → finish dragging
-# fig.canvas.mpl_connect('button_release_event', on_release)
 
 fig.canvas.mpl_connect(
     'button_press_event',
