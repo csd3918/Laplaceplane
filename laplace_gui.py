@@ -603,7 +603,7 @@ def get_fourier_axis_text():
 
         return "H(jω): jω axis is outside ROC"
 
-    if roc_mode[0] == 'anticausal':
+    if roc_mode[0] == 'anti-causal':
         if min(sigmas) > 0:
             return "H(jω): Exists, jω axis is in ROC"
 
