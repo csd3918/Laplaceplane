@@ -992,10 +992,14 @@ def on_mouse_press(event):
 
             # Prevent accidental insertion on an existing point
             if add_conjugate[0] or count_value[0] > 1:
-                print(
+                message = (
                     "Η μετακίνηση είναι απενεργοποιημένη όταν "
                     "Συζυγή: ON ή Πλήθος > 1."
                 )
+
+                print(message)
+                show_status_message(message)
+
                 return
 
             dragging_point = ('zero', index)
@@ -1030,43 +1034,54 @@ def on_mouse_press(event):
 
             return
 
-
     # --------------------------------------------------------
     # No existing point was selected.
-    # Add a new zero or pole.
+    # Add a new zero or pole as one grouped action.
     # --------------------------------------------------------
     new_point = click_position
     conjugate_point = new_point.conjugate()
 
-    # Left mouse button: add zero
+    added_points = []
+
+    # Left mouse button: add zeros
     if event.button == 1:
         for _ in range(count_value[0]):
             zeros.append(new_point)
-            history.append(('zero', new_point))
+            added_points.append(('zero', new_point))
 
             if (
-                add_conjugate[0]
-                and abs(new_point.imag) > 1e-12
+                    add_conjugate[0]
+                    and abs(new_point.imag) > 1e-12
             ):
                 zeros.append(conjugate_point)
-                history.append(('zero', conjugate_point))
+                added_points.append(
+                    ('zero', conjugate_point)
+                )
 
-    # Right mouse button: add pole
+    # Right mouse button: add poles
     elif event.button == 3:
         for _ in range(count_value[0]):
             poles.append(new_point)
-            history.append(('pole', new_point))
+            added_points.append(('pole', new_point))
 
             if (
-                add_conjugate[0]
-                and abs(new_point.imag) > 1e-12
+                    add_conjugate[0]
+                    and abs(new_point.imag) > 1e-12
             ):
                 poles.append(conjugate_point)
-                history.append(('pole', conjugate_point))
+                added_points.append(
+                    ('pole', conjugate_point)
+                )
 
-    # Ignore other mouse buttons
+    # Ignore middle button and other buttons
     else:
         return
+
+    # Store the entire click as one history action
+    if added_points:
+        history.append(
+            ('add_group', added_points)
+        )
 
     update_plot()
 
@@ -1075,42 +1090,78 @@ def on_mouse_press(event):
 # ============================================================
 def undo(event):
     """
-    Undo the most recent action.
+    Undo the most recent user action.
 
     Supported actions:
-        - Addition of a zero
-        - Addition of a pole
-        - Movement of a zero or pole
+        - Grouped addition of poles or zeros
+        - Movement of a pole or zero
+        - Legacy individual additions
     """
     if not history:
         print("Δεν υπάρχει ενέργεια για αναίρεση.")
         return
 
     last_action = history.pop()
+    action_type = last_action[0]
 
-    # Undo a movement
-    if last_action[0] == 'move':
-        _, typ, index, old_position, new_position = last_action
+    # --------------------------------------------------------
+    # Undo grouped addition
+    # Format:
+    # ('add_group', [('zero', point), ('zero', point), ...])
+    # --------------------------------------------------------
+    if action_type == 'add_group':
+        added_points = last_action[1]
 
-        if typ == 'zero' and index < len(zeros):
+        # Reverse order is safer when duplicate points exist
+        for point_type, position in reversed(added_points):
+
+            if point_type == 'zero':
+                for index in range(len(zeros) - 1, -1, -1):
+                    if zeros[index] == position:
+                        zeros.pop(index)
+                        break
+
+            elif point_type == 'pole':
+                for index in range(len(poles) - 1, -1, -1):
+                    if poles[index] == position:
+                        poles.pop(index)
+                        break
+
+    # --------------------------------------------------------
+    # Undo movement
+    # Format:
+    # ('move', point_type, index, old_position, new_position)
+    # --------------------------------------------------------
+    elif action_type == 'move':
+        _, point_type, index, old_position, new_position = last_action
+
+        if point_type == 'zero' and index < len(zeros):
             zeros[index] = old_position
 
-        elif typ == 'pole' and index < len(poles):
+        elif point_type == 'pole' and index < len(poles):
             poles[index] = old_position
 
-    # Undo the addition of a zero
-    elif last_action[0] == 'zero':
+    # --------------------------------------------------------
+    # Compatibility with old individual zero additions
+    # --------------------------------------------------------
+    elif action_type == 'zero':
         position = last_action[1]
 
-        if position in zeros:
-            zeros.remove(position)
+        for index in range(len(zeros) - 1, -1, -1):
+            if zeros[index] == position:
+                zeros.pop(index)
+                break
 
-    # Undo the addition of a pole
-    elif last_action[0] == 'pole':
+    # --------------------------------------------------------
+    # Compatibility with old individual pole additions
+    # --------------------------------------------------------
+    elif action_type == 'pole':
         position = last_action[1]
 
-        if position in poles:
-            poles.remove(position)
+        for index in range(len(poles) - 1, -1, -1):
+            if poles[index] == position:
+                poles.pop(index)
+                break
 
     update_plot()
 
@@ -1149,27 +1200,45 @@ def save(event):
 # ============================================================
 def load(event):
     """
-    Load poles and zeros from 'zplane_data.json', replacing the current diagram.
-    Automatically refreshes the plot.
+    Load poles and zeros from 'splane_data.json'.
+
+    The loaded configuration becomes the new initial state,
+    so the undo history is cleared.
     """
-    if not os.path.exists("splane_data.json"):
+    filename = "splane_data.json"
+
+    if not os.path.exists(filename):
         print("Το αρχείο δεν υπάρχει.")
         return
-    with open("splane_data.json", "r") as f:
-        data = json.load(f)
+
+    try:
+        with open(filename, "r") as file:
+            data = json.load(file)
+
+        loaded_zeros = [
+            complex(*value)
+            for value in data.get("zeros", [])
+        ]
+
+        loaded_poles = [
+            complex(*value)
+            for value in data.get("poles", [])
+        ]
+
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+        print(f"Αποτυχία φόρτωσης δεδομένων: {error}")
+        return
+
     zeros.clear()
     poles.clear()
     history.clear()
-    for z in data.get("zeros", []):
-        zeros.append(complex(*z))
-        history.append(('zero', complex(*z)))
-    for p in data.get("poles", []):
-        poles.append(complex(*p))
-        history.append(('pole', complex(*p)))
+
+    zeros.extend(loaded_zeros)
+    poles.extend(loaded_poles)
+
     update_plot()
+
     print("Φορτώθηκαν δεδομένα από splane_data.json")
-
-
 # ============================================================
 # Manual input submission handler
 # ============================================================
@@ -1190,35 +1259,62 @@ def manual_submit(text):
 # ============================================================
 def add_manual_zero(event):
     """
-    Add the manually entered zero (and its conjugate if enabled) to the diagram.
+    Add manually entered zeros as one grouped action.
     """
-    z = manual_value[0]
-    for _ in range(count_value[0]):
-        zeros.append(z)
-        history.append(('zero', z))
-        if add_conjugate[0] and abs(z.imag) > 1e-12:
-            zeros.append(z.conjugate())
-            history.append(('zero', z.conjugate()))
-    update_plot()
+    zero = manual_value[0]
+    added_points = []
 
+    for _ in range(count_value[0]):
+        zeros.append(zero)
+        added_points.append(('zero', zero))
+
+        if (
+            add_conjugate[0]
+            and abs(zero.imag) > 1e-12
+        ):
+            conjugate_zero = zero.conjugate()
+            zeros.append(conjugate_zero)
+            added_points.append(
+                ('zero', conjugate_zero)
+            )
+
+    if added_points:
+        history.append(
+            ('add_group', added_points)
+        )
+
+    update_plot()
 
 # ============================================================
 # Add manually defined pole
 # ============================================================
 def add_manual_pole(event):
     """
-    Add the manually entered pole (and its conjugate if enabled) to the diagram.
+    Add manually entered poles as one grouped action.
     """
-    p = manual_value[0]
+    pole = manual_value[0]
+    added_points = []
+
     for _ in range(count_value[0]):
-        poles.append(p)
-        history.append(('pole', p))
-        if add_conjugate[0] and abs(p.imag) > 1e-12:
-            poles.append(p.conjugate())
-            history.append(('pole', p.conjugate()))
+        poles.append(pole)
+        added_points.append(('pole', pole))
+
+        if (
+            add_conjugate[0]
+            and abs(pole.imag) > 1e-12
+        ):
+            conjugate_pole = pole.conjugate()
+            poles.append(conjugate_pole)
+            added_points.append(
+                ('pole', conjugate_pole)
+            )
+
+    if added_points:
+        history.append(
+            ('add_group', added_points)
+        )
+
     update_plot()
-
-
 # ============================================================
 # Mouse Event: on_press()
 # ============================================================
