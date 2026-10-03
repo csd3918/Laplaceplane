@@ -1,5 +1,5 @@
 # ============================================================
-# laplace_gui_clean.py
+# laplace_gui.py
 # ------------------------------------------------------------
 # Interactive S-plane visualizer for poles and zeros of
 # continuous-time LTI systems.
@@ -10,6 +10,7 @@
 #   - Automatic logarithmic frequency range selection.
 #   - Manual insertion of complex poles and zeros.
 #   - Drag-and-drop movement of existing points.
+#   - Deletion of a point (middle click or Shift + left click).
 #   - Optional automatic addition of conjugate points.
 #   - Laplace Region of Convergence visualization.
 #   - BIBO stability and Fourier-axis existence checks.
@@ -248,7 +249,13 @@ def compute_frequency_response():
     with np.errstate(divide='ignore', invalid='ignore'):
         H_mag_db = 20 * np.log10(H_abs)
 
-    H_phase_rad = np.unwrap(np.angle(H))
+    # Unwrap only the finite samples: a single NaN (e.g. a pole exactly
+    # on a grid frequency) would otherwise propagate through np.unwrap
+    # and erase the rest of the phase curve.
+    H_phase_rad = np.full(H.shape, np.nan)
+    finite = np.isfinite(H)
+    if np.any(finite):
+        H_phase_rad[finite] = np.unwrap(np.angle(H[finite]))
     H_phase_deg = np.degrees(H_phase_rad)
 
     # Create copies used only for safe plotting
@@ -498,6 +505,12 @@ def build_transfer_function_text():
     else:
         denominator = "".join(format_factor(p) for p in poles)
 
+    # Brackets avoid ambiguity, e.g. (s + 2) / [(s + 1)(s + 5)]
+    if len(zeros) > 1:
+        numerator = f"[{numerator}]"
+    if len(poles) > 1:
+        denominator = f"[{denominator}]"
+
     return f"H(s) = {numerator} / {denominator}"
 
 def get_stability_text():
@@ -603,7 +616,7 @@ def get_fourier_axis_text():
 
         return "H(jω): jω axis is outside ROC"
 
-    if roc_mode[0] == 'anti-causal':
+    if roc_mode[0] == 'anticausal':
         if min(sigmas) > 0:
             return "H(jω): Exists, jω axis is in ROC"
 
@@ -674,7 +687,8 @@ def draw_info_panel():
         stability_text,
         get_roc_text(),
         get_fourier_axis_text(),
-        axis_poles_text
+        axis_poles_text,
+        get_frequency_range_text()
     ]
 
     info_text = "\n".join(info_lines)
@@ -725,7 +739,7 @@ def update_plot():
     """
     # Clear the S-plane axes
     ax_plane.cla()
-    ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών στο χώρο Laplace", pad=8)
+    ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών", pad=8)
 
     # Determine axis limits dynamically based on all points
     all_points = zeros + poles
@@ -788,10 +802,16 @@ def plot_final_3d(event):
     LINES_STEP = 2
     POINT_STEP = 2
 
-    # Define the grid for the complex S-plane
+    # Define the grid for the complex S-plane.
+    # At least [-5, 5], extended so that every root is visible.
+    all_points = zeros + poles
+    R = 5.0
+    if all_points:
+        R = max(R, max(max(abs(p.real), abs(p.imag)) for p in all_points) + 1.0)
+
     N = 160
-    sigma = np.linspace(-5, 5, N)
-    omega = np.linspace(-5, 5, N)
+    sigma = np.linspace(-R, R, N)
+    omega = np.linspace(-R, R, N)
 
     Sigma, Omega = np.meshgrid(sigma, omega)
 
@@ -826,8 +846,8 @@ def plot_final_3d(event):
     ax.set_ylabel("Φανταστικό μέρος ω = Im(s)")
     ax.set_zlabel("|H(s)|")
 
-    ax.set_xlim(-5, 5)
-    ax.set_ylim(-5, 5)
+    ax.set_xlim(-R, R)
+    ax.set_ylim(-R, R)
     ax.set_zlim(0, 6)
 
     ax.view_init(elev=35, azim=130)
@@ -906,11 +926,45 @@ def show_status_message(message, color='darkorange'):
 
     fig.canvas.draw_idle()
 
+def delete_nearest_point(position, threshold):
+    """
+    Remove the zero or pole closest to `position`, if it lies
+    within `threshold`. The deletion is stored in the history
+    together with the original index, so Undo restores the point
+    at exactly the same place in its list.
+    """
+    candidates = (
+        [('zero', i, z) for i, z in enumerate(zeros)]
+        + [('pole', i, p) for i, p in enumerate(poles)]
+    )
+
+    if not candidates:
+        return
+
+    point_type, index, value = min(
+        candidates,
+        key=lambda c: abs(c[2] - position)
+    )
+
+    if abs(value - position) >= threshold:
+        return
+
+    if point_type == 'zero':
+        zeros.pop(index)
+    else:
+        poles.pop(index)
+
+    history.append(('delete', point_type, index, value))
+    update_plot()
+
+
 def on_mouse_press(event):
     """
     Handle mouse button presses on the S-plane.
 
     Priority:
+        0. Middle click or Shift + left click on an existing
+           point deletes it.
         1. If the click is close to an existing pole or zero,
            start dragging that point.
         2. Otherwise, add a new point:
@@ -934,16 +988,29 @@ def on_mouse_press(event):
     selection_threshold = 0.1
 
     # --------------------------------------------------------
+    # Deletion: middle click, or Shift + left click,
+    # on an existing point removes it (undoable).
+    # --------------------------------------------------------
+    is_delete_click = (
+        event.button == 2
+        or (event.button == 1 and event.key == 'shift')
+    )
+
+    if is_delete_click:
+        delete_nearest_point(click_position, selection_threshold)
+        return
+
+    # --------------------------------------------------------
     # First priority: detect an existing zero
     # --------------------------------------------------------
     for index, zero in enumerate(zeros):
         if abs(zero - click_position) < selection_threshold:
 
             # Prevent accidental insertion on an existing point
-            if add_conjugate[0] or count_value[0] > 1:
+            if add_conjugate[0] or read_count() > 1:
                 message = (
                     "Η μετακίνηση είναι απενεργοποιημένη όταν "
-                    "Συζυγή: ON ή Πλήθος > 1."
+                    "Συζυγή: ON ή Πλήθος > 1"
                 )
 
                 print(message)
@@ -965,7 +1032,7 @@ def on_mouse_press(event):
         if abs(pole - click_position) < selection_threshold:
 
             # Prevent accidental insertion on an existing point
-            if add_conjugate[0] or count_value[0] > 1:
+            if add_conjugate[0] or read_count() > 1:
                 message = (
                     "Η μετακίνηση είναι απενεργοποιημένη όταν "
                     "Συζυγή: ON ή Πλήθος > 1"
@@ -992,9 +1059,11 @@ def on_mouse_press(event):
 
     added_points = []
 
+    count = read_count()
+
     # Left mouse button: add zeros
     if event.button == 1:
-        for _ in range(count_value[0]):
+        for _ in range(count):
             zeros.append(new_point)
             added_points.append(('zero', new_point))
 
@@ -1009,7 +1078,7 @@ def on_mouse_press(event):
 
     # Right mouse button: add poles
     elif event.button == 3:
-        for _ in range(count_value[0]):
+        for _ in range(count):
             poles.append(new_point)
             added_points.append(('pole', new_point))
 
@@ -1044,6 +1113,7 @@ def undo(event):
     Supported actions:
         - Grouped addition of poles or zeros
         - Movement of a pole or zero
+        - Deletion of a pole or zero
         - Legacy individual additions
     """
     if not history:
@@ -1089,6 +1159,19 @@ def undo(event):
 
         elif point_type == 'pole' and index < len(poles):
             poles[index] = old_position
+
+    # --------------------------------------------------------
+    # Undo deletion
+    # Format:
+    # ('delete', point_type, index, position)
+    # --------------------------------------------------------
+    elif action_type == 'delete':
+        _, point_type, index, position = last_action
+
+        if point_type == 'zero':
+            zeros.insert(index, position)
+        else:
+            poles.insert(index, position)
 
     # --------------------------------------------------------
     # Compatibility with old individual zero additions
@@ -1203,6 +1286,36 @@ def manual_submit(text):
         print("Μη έγκυρη μορφή για σημείο s. Π.χ. -1+2j")
 
 
+def read_manual_value():
+    """
+    Read the complex value currently typed in the s= box.
+
+    The box is read at the moment a button is pressed, so the value
+    is used even if the user did not press Enter first.
+    Returns None and shows a message if the text is not valid.
+    """
+    try:
+        manual_value[0] = complex(text_box.text.strip().replace(' ', ''))
+        return manual_value[0]
+    except ValueError:
+        message = "Μη έγκυρη μορφή για σημείο s. Π.χ. -1+2j"
+        print(message)
+        show_status_message(message, color='red')
+        return None
+
+
+def read_count():
+    """
+    Read the number typed in the Πλήθος= box (integer >= 1).
+    Falls back to the last valid value if the text is not valid.
+    """
+    try:
+        count_value[0] = max(1, int(text_count.text.strip()))
+    except ValueError:
+        text_count.set_val(str(count_value[0]))
+    return count_value[0]
+
+
 # ============================================================
 # Add manually defined zero
 # ============================================================
@@ -1210,10 +1323,12 @@ def add_manual_zero(event):
     """
     Add manually entered zeros as one grouped action.
     """
-    zero = manual_value[0]
+    zero = read_manual_value()
+    if zero is None:
+        return
     added_points = []
 
-    for _ in range(count_value[0]):
+    for _ in range(read_count()):
         zeros.append(zero)
         added_points.append(('zero', zero))
 
@@ -1241,10 +1356,12 @@ def add_manual_pole(event):
     """
     Add manually entered poles as one grouped action.
     """
-    pole = manual_value[0]
+    pole = read_manual_value()
+    if pole is None:
+        return
     added_points = []
 
-    for _ in range(count_value[0]):
+    for _ in range(read_count()):
         poles.append(pole)
         added_points.append(('pole', pole))
 
@@ -1281,12 +1398,13 @@ def on_motion(event):
     global dragging_point
     if dragging_point and event.inaxes == ax_plane and event.xdata is not None and event.ydata is not None:
         typ, i = dragging_point
+        # Locked coordinates keep the value they had when the drag started
         if drag_lock_mode[0] == 'imag':
-            new_real = 0.0
+            new_real = drag_start_fixed[0]
             new_imag = event.ydata
         elif drag_lock_mode[0] == 'real':
             new_real = event.xdata
-            new_imag = 0.0
+            new_imag = drag_start_fixed[1]
         else:
             new_real = event.xdata
             new_imag = event.ydata
