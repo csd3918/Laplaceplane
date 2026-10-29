@@ -6,8 +6,10 @@
 #
 # Features:
 #   - Interactive placement of poles and zeros in the S-plane.
-#   - Real-time Bode magnitude and phase responses.
-#   - Automatic logarithmic frequency range selection.
+#   - Real-time magnitude and phase spectra:
+#       linear scale over negative and positive frequencies,
+#       or Bode diagram (selected with a check box).
+#   - Automatic frequency range selection.
 #   - Manual insertion of complex poles and zeros.
 #   - Drag-and-drop movement of existing points.
 #   - Deletion of a point (middle click or Shift + left click).
@@ -27,7 +29,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 import os
-from matplotlib.widgets import Button, TextBox, RadioButtons
+import sys
+from matplotlib.widgets import Button, TextBox, RadioButtons, CheckButtons
 from matplotlib import cm
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from matplotlib import colors
@@ -105,6 +108,9 @@ ax_add_pole = plt.axes([0.84, 0.87, 0.14, 0.04])
 # Radio buttons area for ROC (Region of Convergence)
 ax_roc = plt.axes([0.43, 0.87, 0.09, 0.12])
 
+# Check box area for the spectrum scale (linear / Bode)
+ax_spectrum = plt.axes([0.54, 0.87, 0.13, 0.12])
+
 # S-plane diagram (left center)
 ax_plane = plt.axes([0.05, 0.15, 0.35, 0.60])
 
@@ -122,8 +128,8 @@ ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών", pad=8)
 ax_plane.set_xlim(-1.5, 1.5)
 ax_plane.set_ylim(-1.5, 1.5)
 ax_plane.set_aspect('equal')
-ax_plane.set_xlabel("Real Part")
-ax_plane.set_ylabel("Imaginary Part")
+ax_plane.set_xlabel("Re(s)")
+ax_plane.set_ylabel("Im(s)")
 ax_plane.grid(True)
 ax_plane.axhline(0, color='dodgerblue', linestyle=':', linewidth=1.5)
 ax_plane.axvline(0, color='dodgerblue', linestyle=':', linewidth=1.5)
@@ -142,14 +148,96 @@ def style_mag_phase(ax, title, ylabel):
     ax.grid(True)
 
 
-# Apply consistent formatting to the Bode plots
-style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
-style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
-ax_phase.set_xlabel(r"$\omega$ [rad/s]")
+# ============================================================
+# Spectrum display mode
+# ------------------------------------------------------------
+#   'linear': |H(jω)| and phase over negative AND positive ω,
+#             linear frequency axis (default)
+#   'bode'  : 20log10|H(jω)| and phase over positive ω,
+#             logarithmic frequency axis
+# ============================================================
+spectrum_mode = ['linear']
+
+
+def apply_spectrum_axes():
+    """
+    Set axis scale, titles and labels of the two spectrum plots
+    according to the selected spectrum mode.
+    """
+    if spectrum_mode[0] == 'bode':
+        ax_mag.set_xscale('log')
+        ax_phase.set_xscale('log')
+        style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους",
+                        r"$20\log_{10}|H(j\omega)|$ [dB]")
+        style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης",
+                        r"$\angle H(j\omega)$ [deg]")
+    else:
+        ax_mag.set_xscale('linear')
+        ax_phase.set_xscale('linear')
+        style_mag_phase(ax_mag, "Φάσμα Πλάτους", r"$|H(j\omega)|$")
+        style_mag_phase(ax_phase, "Φάσμα Φάσης",
+                        r"$\angle H(j\omega)$ [deg]")
+
+    ax_phase.set_xlabel(r"$\omega$ [rad/s]")
+
 
 # System information panel
 ax_info.axis('off')
 ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
+
+# ============================================================
+# Persistent plot objects
+# ------------------------------------------------------------
+# These objects are created once. On every change only their
+# data is updated (set_data / set_text), instead of clearing and
+# rebuilding the axes. Rebuilding the axes on every mouse
+# movement made dragging lag behind the cursor.
+# ============================================================
+
+# Pole and zero markers in the S-plane
+zeros_line, = ax_plane.plot([], [], 'bo', linestyle='none', zorder=4)
+poles_line, = ax_plane.plot([], [], 'rx', linestyle='none', zorder=4)
+
+# Text labels next to every pole and zero
+point_labels = []
+
+# Magnitude and phase curves
+mag_line, = ax_mag.plot([], [], color='red', linewidth=2)
+phase_line, = ax_phase.plot([], [], color='red', linewidth=2)
+
+# Vertical markers at the frequencies of poles on the jω axis
+axis_pole_markers = []
+
+# Information panel text and colored stability indicator
+info_text_artist = ax_info.text(
+    0.02,
+    0.95,
+    "",
+    transform=ax_info.transAxes,
+    fontsize=10,
+    verticalalignment='top',
+    family='monospace',
+    color='black',
+    bbox=dict(
+        facecolor='white',
+        alpha=0.85,
+        edgecolor='lightgray'
+    )
+)
+
+stability_indicator = ax_info.text(
+    0.98,
+    0.95,
+    "●",
+    transform=ax_info.transAxes,
+    fontsize=16,
+    verticalalignment='top',
+    horizontalalignment='right',
+    color='gray'
+)
+
+apply_spectrum_axes()
+
 
 def get_imaginary_axis_poles(tolerance=1e-9):
     """
@@ -164,8 +252,8 @@ def get_imaginary_axis_poles(tolerance=1e-9):
 
 def compute_frequency_range(num_points=2000):
     """
-    Create an automatic logarithmic frequency range based on
-    the current pole and zero locations.
+    Create an automatic logarithmic frequency range (Bode mode)
+    based on the current pole and zero locations.
 
     Two decades are displayed below the smallest characteristic
     frequency and above the largest characteristic frequency.
@@ -196,58 +284,125 @@ def compute_frequency_range(num_points=2000):
             omega_min = 1e-2
             omega_max = 1e3
 
-    return np.logspace(
+    omega = np.logspace(
         np.log10(omega_min),
         np.log10(omega_max),
         num_points
     )
 
+    # Add the exact frequencies |Im(root)| to the grid, so that sharp
+    # resonance peaks (poles very close to the jω axis) or notches are
+    # not missed between two logarithmic samples.
+    if num_points > 2:
+        root_frequencies = [
+            abs(root.imag)
+            for root in all_roots
+            if omega_min <= abs(root.imag) <= omega_max
+        ]
+        omega = np.union1d(omega, root_frequencies)
+
+    return omega
+
+
+def compute_linear_limit():
+    """
+    Return W for the linear spectrum range [-W, W].
+
+    W is twice the largest root magnitude, so that every
+    resonance and notch is inside the plot with some margin.
+    """
+    all_roots = poles + zeros
+
+    if not all_roots:
+        return 10.0
+
+    W = 2.0 * max(abs(root) for root in all_roots)
+
+    return min(max(W, 1.0), 1e6)
+
+
+def compute_linear_range(num_points=4001):
+    """
+    Create a symmetric linear frequency grid [-W, W] (linear mode),
+    which includes negative frequencies.
+
+    ω = 0 and the exact imaginary parts of all roots are added to
+    the grid, for the same reason as in the Bode range.
+    """
+    W = compute_linear_limit()
+
+    omega = np.linspace(-W, W, num_points)
+
+    extra = [0.0] + [
+        root.imag
+        for root in poles + zeros
+        if -W <= root.imag <= W
+    ]
+
+    return np.union1d(omega, extra)
+
+
 def get_frequency_range_text():
     """
-    Return the current automatic Bode frequency range.
+    Return the current automatic frequency range of the spectrum plots.
     """
-    omega = compute_frequency_range(num_points=2)
+    if spectrum_mode[0] == 'bode':
+        omega = compute_frequency_range(num_points=2)
 
-    return (
-        f"Bode range: {omega[0]:.3g} to "
-        f"{omega[-1]:.3g} rad/s"
-    )
+        return (
+            f"Bode range: {omega[0]:.3g} to "
+            f"{omega[-1]:.3g} rad/s"
+        )
 
-# ============================================================
-# Function: compute_frequency_response()
-# ============================================================
-def compute_frequency_response():
+    W = compute_linear_limit()
+
+    return f"Spectrum range: -{W:.3g} to {W:.3g} rad/s (linear)"
+
+
+def evaluate_H(s):
     """
-    Compute and display the frequency response H(jω) of the continuous-time system
-    defined by the current poles and zeros.
-
-    Steps:
-        1. Build an automatic logarithmic frequency grid.
-        2. Evaluate H(s) along the imaginary axis, where s = jω.
-        3. Convert magnitude to decibels and phase to degrees.
-        4. Redraw the Bode magnitude and phase plots.
+    Evaluate H(s) = Π(s - z_k) / Π(s - p_l) at the points s.
+    Division by zero (s exactly on a pole) gives inf / nan
+    without warnings.
     """
-    # Evaluate the transfer function along the positive imaginary axis.
-    omega = compute_frequency_range(num_points=2000)
-    s = 1j * omega
-
-    # Initialize numerator and denominator of H(s)
     numerator = np.ones_like(s, dtype=complex)
     denominator = np.ones_like(s, dtype=complex)
 
-    # Multiply terms for zeros and poles
     for zero in zeros:
         numerator *= (s - zero)
     for pole in poles:
         denominator *= (s - pole)
 
-    # Compute the frequency response
     with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
-        H = numerator / denominator
-    H_abs = np.abs(H)
+        return numerator / denominator
 
-    with np.errstate(divide='ignore', invalid='ignore'):
-        H_mag_db = 20 * np.log10(H_abs)
+
+# ============================================================
+# Function: compute_frequency_response()
+# ============================================================
+def compute_frequency_response(freeze_limits=False):
+    """
+    Compute and display the frequency response H(jω) of the continuous-time system
+    defined by the current poles and zeros.
+
+    Steps:
+        1. Build the frequency grid of the selected mode:
+             linear: symmetric linear grid [-W, W]
+             bode:   positive logarithmic grid
+        2. Evaluate H(s) along the imaginary axis, where s = jω.
+        3. Magnitude: |H(jω)| (linear) or 20log10|H(jω)| in dB (Bode).
+           Phase: unwrapped, in degrees.
+        4. Update the data of the existing magnitude and phase curves.
+    """
+    is_bode = spectrum_mode[0] == 'bode'
+
+    if is_bode:
+        omega = compute_frequency_range(num_points=2000)
+    else:
+        omega = compute_linear_range(num_points=4001)
+
+    H = evaluate_H(1j * omega)
+    H_abs = np.abs(H)
 
     # Unwrap only the finite samples: a single NaN (e.g. a pole exactly
     # on a grid frequency) would otherwise propagate through np.unwrap
@@ -255,68 +410,85 @@ def compute_frequency_response():
     H_phase_rad = np.full(H.shape, np.nan)
     finite = np.isfinite(H)
     if np.any(finite):
-        H_phase_rad[finite] = np.unwrap(np.angle(H[finite]))
-    H_phase_deg = np.degrees(H_phase_rad)
+        unwrapped = np.unwrap(np.angle(H[finite]))
 
-    # Create copies used only for safe plotting
-    H_mag_plot = H_mag_db.copy()
-    H_phase_plot = H_phase_deg.copy()
+        # np.unwrap starts from the first sample, so the whole curve may be
+        # shifted by a multiple of 360°. Anchor it at the sample closest to
+        # ω = 0, where the phase must lie in (-180°, 180°].
+        # (In Bode mode this is simply the first, lowest frequency.)
+        k = np.argmin(np.abs(omega[finite]))
+        wrapped = np.angle(H[finite][k])
+        unwrapped -= 2 * np.pi * np.round((unwrapped[k] - wrapped) / (2 * np.pi))
 
-    # Replace infinite or invalid values with NaN
-    # Matplotlib will leave a gap at singularities
-    H_mag_plot[~np.isfinite(H_mag_plot)] = np.nan
+        H_phase_rad[finite] = unwrapped
+    H_phase_plot = np.degrees(H_phase_rad)
+
+    if is_bode:
+        with np.errstate(divide='ignore', invalid='ignore'):
+            H_mag_plot = 20 * np.log10(H_abs)
+
+        # Infinite / invalid values -> NaN (gap in the curve),
+        # then visual limits for the dB axis
+        H_mag_plot[~np.isfinite(H_mag_plot)] = np.nan
+        H_mag_plot = np.clip(H_mag_plot, -120, 120)
+    else:
+        H_mag_plot = H_abs.copy()
+        H_mag_plot[~np.isfinite(H_mag_plot)] = np.nan
+
     H_phase_plot[~np.isfinite(H_phase_plot)] = np.nan
 
-    # Visual limits for the magnitude diagram
-    MAG_MIN_DB = -120
-    MAG_MAX_DB = 120
+    # ------------------------------------------------------------
+    # Update the existing curves
+    # ------------------------------------------------------------
+    mag_line.set_data(omega, H_mag_plot)
+    phase_line.set_data(omega, H_phase_plot)
 
-    H_mag_plot = np.clip(
-        H_mag_plot,
-        MAG_MIN_DB,
-        MAG_MAX_DB
-    )
+    # While dragging, the axis limits stay frozen (see blitting below)
+    if not freeze_limits:
+        for ax in (ax_mag, ax_phase):
+            ax.relim()
+            ax.set_autoscaley_on(True)
+            ax.autoscale_view()
+            # auto=None keeps the autoscale setting unchanged
+            ax.set_xlim(omega[0], omega[-1], auto=None)
+
+        if not is_bode:
+            # A magnitude is never negative
+            ax_mag.set_ylim(bottom=0, auto=None)
 
     # ------------------------------------------------------------
-    # Magnitude plot
-    # ------------------------------------------------------------
-    ax_mag.clear()
-    ax_mag.semilogx(omega, H_mag_plot, color='red', linewidth=2)
-    style_mag_phase(ax_mag, "Bode Διάγραμμα Πλάτους", r"$20\log_{10}|H(j\omega)|$ [dB]")
-
-    # ------------------------------------------------------------
-    # Phase plot
-    # ------------------------------------------------------------
-    ax_phase.clear()
-    ax_phase.semilogx(omega, H_phase_plot, color='red', linewidth=2)
-    style_mag_phase(ax_phase, "Bode Διάγραμμα Φάσης", r"$\angle H(j\omega)$ [deg]")
-    ax_phase.set_xlabel(r"$\omega$ [rad/s]")
-
-    #--------------------------------------------------------
     # Mark frequencies corresponding to poles on the jω axis
-    #--------------------------------------------------------
-    axis_frequencies = sorted({
-        abs(pole.imag)
-        for pole in get_imaginary_axis_poles()
-        if omega[0] <= abs(pole.imag) <= omega[-1]
-    })
+    # ------------------------------------------------------------
+    for marker in axis_pole_markers:
+        marker.remove()
+    axis_pole_markers.clear()
 
-    for pole_frequency in axis_frequencies:
-        ax_mag.axvline(
-            pole_frequency,
-            color='darkorange',
-            linestyle='--',
-            linewidth=1.5,
-            alpha=0.9
-        )
+    if is_bode:
+        # Only positive frequencies exist on a logarithmic axis
+        axis_frequencies = {
+            abs(pole.imag)
+            for pole in get_imaginary_axis_poles()
+            if omega[0] <= abs(pole.imag) <= omega[-1]
+        }
+    else:
+        # Signed frequency: a pole at +j2 alone affects only ω = +2
+        axis_frequencies = {
+            pole.imag
+            for pole in get_imaginary_axis_poles()
+            if omega[0] <= pole.imag <= omega[-1]
+        }
 
-        ax_phase.axvline(
-            pole_frequency,
-            color='darkorange',
-            linestyle='--',
-            linewidth=1.5,
-            alpha=0.9
-        )
+    for pole_frequency in sorted(axis_frequencies):
+        for ax in (ax_mag, ax_phase):
+            axis_pole_markers.append(
+                ax.axvline(
+                    pole_frequency,
+                    color='darkorange',
+                    linestyle='--',
+                    linewidth=1.5,
+                    alpha=0.9
+                )
+            )
 
 # ============================================================
 # Helper function: _compute_noncausal_strip()
@@ -363,6 +535,9 @@ def draw_roc(lim):
         - Noncausal:   sigma_left < Re(s) < sigma_right
         - None:        no shading
 
+    The ROC is always a vertical half-plane or strip, so it is drawn
+    as a shaded vertical band (axvspan) between two Re(s) values.
+
     Args:
         lim (float): Axis limit for consistent extent of the shading.
     """
@@ -396,19 +571,12 @@ def draw_roc(lim):
     sigma_max = max(sigmas)
     sigma_min = min(sigmas)
 
-    # Grid over the S-plane
-    N = 400
-    x = np.linspace(-lim, lim, N)
-    y = np.linspace(-lim, lim, N)
-    X, Y = np.meshgrid(x, y)
-
-    # In the S-plane, X corresponds to Re(s)
     if roc_mode[0] == 'causal':
-        mask = X > (sigma_max + 1e-6)
+        left, right = sigma_max, lim
         roc_text = fr"ROC: Re(s) > {sigma_max:.3f}"
 
     elif roc_mode[0] == 'anticausal':
-        mask = X < (sigma_min - 1e-6)
+        left, right = -lim, sigma_min
         roc_text = fr"ROC: Re(s) < {sigma_min:.3f}"
 
     else:
@@ -423,16 +591,16 @@ def draw_roc(lim):
         if sigma_right - sigma_left < 1e-6:
             return
 
-        mask = (X > (sigma_left + 1e-6)) & (X < (sigma_right - 1e-6))
+        left, right = sigma_left, sigma_right
         roc_text = fr"ROC: {sigma_left:.3f} < Re(s) < {sigma_right:.3f}"
 
     # Draw semi-transparent ROC region
-    roc_im[0] = ax_plane.imshow(
-        mask.astype(float),
-        extent=[-lim, lim, -lim, lim],
-        origin='lower',
+    roc_im[0] = ax_plane.axvspan(
+        left,
+        right,
+        facecolor='#00441b',
+        edgecolor='none',
         alpha=0.15,
-        cmap=cm.Greens,
         zorder=0
     )
 
@@ -641,11 +809,8 @@ def get_fourier_axis_text():
 def draw_info_panel():
     """
     Display the transfer function and key system properties.
+    Only the text and color of the existing objects are updated.
     """
-    ax_info.clear()
-    ax_info.axis('off')
-    ax_info.set_title("Πληροφορίες Συστήματος", pad=6)
-
     if len(poles) > 0:
         rightmost_pole = max(poles, key=lambda p: p.real)
         rightmost_text = (
@@ -691,99 +856,209 @@ def draw_info_panel():
         get_frequency_range_text()
     ]
 
-    info_text = "\n".join(info_lines)
-
-    ax_info.text(
-        0.02,
-        0.95,
-        info_text,
-        transform=ax_info.transAxes,
-        fontsize=10,
-        verticalalignment='top',
-        family='monospace',
-        color='black',
-        bbox=dict(
-            facecolor='white',
-            alpha=0.85,
-            edgecolor='lightgray'
-        )
-    )
+    info_text_artist.set_text("\n".join(info_lines))
 
     # Colored stability indicator
-    ax_info.text(
-        0.98,
-        0.95,
-        "●",
-        transform=ax_info.transAxes,
-        fontsize=16,
-        verticalalignment='top',
-        horizontalalignment='right',
-        color=stability_color
-    )
+    stability_indicator.set_color(stability_color)
 
 
 # ============================================================
 # Function: update_plot()
 # ============================================================
-def update_plot():
+def refresh_display(freeze_limits=False):
     """
-    Redraw the entire S-plane diagram, including:
-        - Poles and zeros
+    Update the data of all plot objects after any change of the system:
+        - Poles and zeros in the S-plane
         - ROC shading
-        - Bode magnitude and phase responses
+        - Magnitude and phase spectra
         - System information panel
 
-    This function is called whenever user actions modify the system
-    (adding/removing points, dragging, loading, etc.).
+    Only the data of the existing plot objects is updated; the axes are
+    never rebuilt. With freeze_limits=True (used while dragging) the axis
+    limits stay unchanged, so that the static background of the figure
+    can be reused (blitting).
     """
-    # Clear the S-plane axes
-    ax_plane.cla()
-    ax_plane.set_title("Διάγραμμα Πόλων-Μηδενικών", pad=8)
+    # Remove a temporary status message, if any
+    if status_message[0] is not None:
+        try:
+            status_message[0].remove()
+        except Exception:
+            pass
+        status_message[0] = None
 
-    # Determine axis limits dynamically based on all points
-    all_points = zeros + poles
-    if all_points:
-        max_r = max(max(abs(p.real), abs(p.imag)) for p in all_points)
-        lim = max(1.5, max_r + 0.5)
+    if freeze_limits:
+        lim = ax_plane.get_xlim()[1]
     else:
-        lim = 1.5
+        # Determine axis limits dynamically based on all points
+        all_points = zeros + poles
+        if all_points:
+            max_r = max(max(abs(p.real), abs(p.imag)) for p in all_points)
+            lim = max(1.5, max_r + 0.5)
+        else:
+            lim = 1.5
 
-    # Reapply grid, labels
-    ax_plane.set_xlim(-lim, lim)
-    ax_plane.set_ylim(-lim, lim)
-    ax_plane.set_aspect('equal')
-    ax_plane.set_xlabel("Re(s)")
-    ax_plane.set_ylabel("Im(s)")
-    ax_plane.grid(True)
-    ax_plane.axhline(0, color='dodgerblue', linestyle=':', linewidth=1.5)
-    ax_plane.axvline(0, color='dodgerblue', linestyle=':', linewidth=1.5)
+        ax_plane.set_xlim(-lim, lim)
+        ax_plane.set_ylim(-lim, lim)
 
-    # Plot zeros as blue circles
+    # Zeros as blue circles, poles as red X marks
+    zeros_line.set_data([z.real for z in zeros], [z.imag for z in zeros])
+    poles_line.set_data([p.real for p in poles], [p.imag for p in poles])
+
+    # Rebuild the text labels (only a few small text objects)
+    for label in point_labels:
+        label.remove()
+    point_labels.clear()
+
     for z in zeros:
-        ax_plane.plot(z.real, z.imag, 'bo')
-        ax_plane.text(z.real + 0.05, z.imag + 0.05,
-                      f"Zero: {z.real:.2f}{z.imag:+.2f}j",
-                      color='blue', fontsize=9)
+        point_labels.append(
+            ax_plane.text(z.real + 0.05, z.imag + 0.05,
+                          f"Zero: {z.real:.2f}{z.imag:+.2f}j",
+                          color='blue', fontsize=9)
+        )
 
-    # Plot poles as red X marks
     for p in poles:
-        ax_plane.plot(p.real, p.imag, 'rx')
-        ax_plane.text(p.real + 0.05, p.imag + 0.05,
-                      f"Pole: {p.real:.2f}{p.imag:+.2f}j",
-                      color='red', fontsize=9)
+        point_labels.append(
+            ax_plane.text(p.real + 0.05, p.imag + 0.05,
+                          f"Pole: {p.real:.2f}{p.imag:+.2f}j",
+                          color='red', fontsize=9)
+        )
 
-    # Update the three frequency-domain plots
-    compute_frequency_response()
+    # Update the frequency-domain plots
+    compute_frequency_response(freeze_limits)
 
     # Draw ROC region shading
     draw_roc(lim)
 
-    #Draw system information panel
+    # Update system information panel
     draw_info_panel()
 
-    # Trigger a GUI refresh
+    # Objects created above must follow the current drawing mode
+    for artist in dynamic_artists():
+        artist.set_animated(drag_render['active'])
+
+
+def update_plot():
+    """
+    Refresh the whole display after a change of the system
+    (adding/removing points, undo, load, ROC change, etc.).
+    """
+    refresh_display(freeze_limits=False)
+
+    # Ask for a redraw; repeated requests are merged into one
     fig.canvas.draw_idle()
 
+
+# ============================================================
+# Fast redrawing while dragging (blitting)
+# ------------------------------------------------------------
+# A full redraw of the figure (axes, ticks, buttons, text boxes)
+# is too slow to follow the mouse. When a drag starts, the static
+# part of the figure is rendered once and stored. On every mouse
+# movement only the objects that change are drawn on top of the
+# stored background. Axis limits are frozen during the drag and
+# adapted again when the mouse button is released.
+# ============================================================
+drag_render = {
+    'active': False,      # blitting mode on/off
+    'background': None,   # stored static part of the figure
+    'pending': False,     # a redraw is already scheduled
+    'timer': None         # single-shot timer that merges mouse events
+}
+
+
+def dynamic_artists():
+    """
+    Return every plot object whose content changes while dragging,
+    in drawing order.
+    """
+    artists = [
+        roc_im[0],
+        zeros_line,
+        poles_line,
+        mag_line,
+        phase_line,
+        roc_label[0],
+        info_text_artist,
+        stability_indicator,
+    ] + point_labels + axis_pole_markers
+
+    artists = [a for a in artists if a is not None]
+
+    return sorted(artists, key=lambda a: a.get_zorder())
+
+
+def start_drag_rendering():
+    """
+    Enter blitting mode: render the static background once.
+    """
+    drag_render['active'] = True
+
+    for artist in dynamic_artists():
+        artist.set_animated(True)
+
+    # Full draw without the animated objects -> static background
+    fig.canvas.draw()
+    drag_render['background'] = fig.canvas.copy_from_bbox(fig.bbox)
+
+    blit_dynamic_artists()
+
+
+def blit_dynamic_artists():
+    """
+    Draw only the changing objects on top of the stored background.
+    """
+    drag_render['pending'] = False
+
+    if not drag_render['active'] or drag_render['background'] is None:
+        return
+
+    refresh_display(freeze_limits=True)
+
+    canvas = fig.canvas
+    canvas.restore_region(drag_render['background'])
+
+    for artist in dynamic_artists():
+        artist.axes.draw_artist(artist)
+
+    canvas.blit(fig.bbox)
+
+
+def request_drag_redraw():
+    """
+    Schedule one redraw for the latest mouse position.
+
+    Mouse movements that arrive while a redraw is pending are merged
+    into that single redraw, so the work never piles up behind the
+    cursor.
+    """
+    if drag_render['pending']:
+        return
+
+    if drag_render['timer'] is None:
+        drag_render['timer'] = fig.canvas.new_timer(interval=1)
+        drag_render['timer'].single_shot = True
+        drag_render['timer'].add_callback(blit_dynamic_artists)
+
+    drag_render['pending'] = True
+    drag_render['timer'].start()
+
+
+def end_drag_rendering():
+    """
+    Leave blitting mode and do a normal full update, which also
+    adapts the axis limits to the new positions.
+    """
+    if drag_render['timer'] is not None:
+        drag_render['timer'].stop()
+
+    drag_render['active'] = False
+    drag_render['pending'] = False
+    drag_render['background'] = None
+
+    for artist in dynamic_artists():
+        artist.set_animated(False)
+
+    update_plot()
 
 
 # ============================================================
@@ -913,7 +1188,7 @@ def show_status_message(message, color='darkorange'):
         transform=ax_plane.transAxes,
         horizontalalignment='center',
         verticalalignment='top',
-        fontsize=10,
+        fontsize=11,
         color=color,
         bbox=dict(
             facecolor='white',
@@ -1022,6 +1297,8 @@ def on_mouse_press(event):
             drag_start_fixed[0] = zero.real
             drag_start_fixed[1] = zero.imag
 
+            start_drag_rendering()
+
             return
 
     # --------------------------------------------------------
@@ -1046,6 +1323,8 @@ def on_mouse_press(event):
 
             drag_start_fixed[0] = pole.real
             drag_start_fixed[1] = pole.imag
+
+            start_drag_rendering()
 
             return
 
@@ -1116,7 +1395,7 @@ def undo(event):
         - Legacy individual additions
     """
     if not history:
-        print("Δεν υπάρχει ενέργεια για αναίρεση.")
+        notify("Δεν υπάρχει ενέργεια για αναίρεση.")
         return
 
     last_action = history.pop()
@@ -1212,6 +1491,33 @@ def reset(event):
 # ============================================================
 # Save current poles and zeros to a JSON file
 # ============================================================
+def data_file_path():
+    """
+    Location of 'splane_data.json'.
+
+    When the program runs as a Windows executable (built with
+    PyInstaller, sys.frozen is set), the file is kept next to the
+    .exe. When it runs as a Python script, the current working
+    directory is used, as before.
+    """
+    if getattr(sys, 'frozen', False):
+        folder = os.path.dirname(sys.executable)
+    else:
+        folder = os.getcwd()
+
+    return os.path.join(folder, "splane_data.json")
+
+
+def notify(message, color='darkorange'):
+    """
+    Show a message both in the console and inside the window.
+    The executable has no console, so the in-window message is the
+    only feedback the user sees there.
+    """
+    print(message)
+    show_status_message(message, color)
+
+
 def save(event):
     """
     Save the current poles and zeros into 'splane_data.json'.
@@ -1221,9 +1527,16 @@ def save(event):
         "zeros": [[z.real, z.imag] for z in zeros],
         "poles": [[p.real, p.imag] for p in poles]
     }
-    with open("splane_data.json", "w") as f:
-        json.dump(data, f)
-    print("Αποθηκεύτηκε σε splane_data.json")
+    filename = data_file_path()
+
+    try:
+        with open(filename, "w") as f:
+            json.dump(data, f)
+    except OSError as error:
+        notify(f"Αποτυχία αποθήκευσης: {error}", color='red')
+        return
+
+    notify("Αποθηκεύτηκε σε splane_data.json", color='green')
 
 
 # ============================================================
@@ -1236,10 +1549,10 @@ def load(event):
     The loaded configuration becomes the new initial state,
     so the undo history is cleared.
     """
-    filename = "splane_data.json"
+    filename = data_file_path()
 
     if not os.path.exists(filename):
-        print("Το αρχείο δεν υπάρχει.")
+        notify("Το αρχείο splane_data.json δεν υπάρχει.", color='red')
         return
 
     try:
@@ -1257,7 +1570,7 @@ def load(event):
         ]
 
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
-        print(f"Αποτυχία φόρτωσης δεδομένων: {error}")
+        notify(f"Αποτυχία φόρτωσης δεδομένων: {error}", color='red')
         return
 
     zeros.clear()
@@ -1269,7 +1582,7 @@ def load(event):
 
     update_plot()
 
-    print("Φορτώθηκαν δεδομένα από splane_data.json")
+    notify("Φορτώθηκαν δεδομένα από splane_data.json", color='green')
 # ============================================================
 # Manual input submission handler
 # ============================================================
@@ -1282,7 +1595,7 @@ def manual_submit(text):
         manual_value[0] = complex(text.strip())
         print(f"Εισήχθη: {manual_value[0]}")
     except Exception:
-        print("Μη έγκυρη μορφή για σημείο s. Π.χ. -1+2j")
+        notify("Μη έγκυρη μορφή για σημείο s. Π.χ. -1+2j", color='red')
 
 
 def read_manual_value():
@@ -1393,6 +1706,8 @@ def on_motion(event):
         - 'none': free movement
 
     Updates both the diagram and the frequency response in real time.
+    The handler itself only stores the new position; drawing is done
+    by request_drag_redraw(), which merges fast mouse movements.
     """
     global dragging_point
     if dragging_point and event.inaxes == ax_plane and event.xdata is not None and event.ydata is not None:
@@ -1413,7 +1728,8 @@ def on_motion(event):
             zeros[i] = complex(new_real, new_imag)
         elif typ == 'pole' and i < len(poles):
             poles[i] = complex(new_real, new_imag)
-        update_plot()
+
+        request_drag_redraw()
 
 
 # ============================================================
@@ -1428,6 +1744,9 @@ def on_release(event):
 
     if dragging_point is None:
         return
+
+    # Back to normal drawing; also adapts the axis limits
+    end_drag_rendering()
 
     typ, index = dragging_point
 
@@ -1557,7 +1876,7 @@ def submit_count(text):
         count_value[0] = val
         print(f"Θα προστεθούν {val} σημεία ανά κλικ.")
     except Exception:
-        print("Δώσε ακέραιο ≥1")
+        notify("Πλήθος: δώσε ακέραιο ≥ 1", color='red')
 
 
 text_count.on_submit(submit_count)
@@ -1599,6 +1918,38 @@ def on_roc_change(label):
 
 
 radio_roc.on_clicked(on_roc_change)
+
+# ============================================================
+# Check box for the spectrum scale
+# ------------------------------------------------------------
+#   unchecked: linear spectrum over negative and positive ω
+#   checked:   Bode diagram (dB, logarithmic ω, positive ω only)
+# ============================================================
+
+check_spectrum = CheckButtons(ax_spectrum, ['Bode\n(λογαριθμική κλίμακα)'], [False])
+
+# Note: at exactly 10 pt the bundled DejaVu Sans font draws 'ί'
+# almost like '(' on screen, so Greek labels avoid that size.
+for check_label in check_spectrum.labels:
+    check_label.set_fontsize(9)
+
+
+def on_spectrum_toggle(label):
+    """
+    Switch between the linear spectrum and the Bode diagram.
+    """
+    spectrum_mode[0] = 'bode' if check_spectrum.get_status()[0] else 'linear'
+
+    # Empty the curves first, so that switching to a logarithmic
+    # axis never sees the negative frequencies of the linear grid
+    mag_line.set_data([], [])
+    phase_line.set_data([], [])
+
+    apply_spectrum_axes()
+    update_plot()
+
+
+check_spectrum.on_clicked(on_spectrum_toggle)
 
 # ============================================================
 # Initialize Lock Labels
