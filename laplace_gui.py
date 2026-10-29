@@ -250,13 +250,16 @@ def get_imaginary_axis_poles(tolerance=1e-9):
         if abs(pole.real) <= tolerance
     ]
 
-def compute_frequency_range(num_points=2000):
+def compute_frequency_range(num_points=2000, bounds=None):
     """
     Create an automatic logarithmic frequency range (Bode mode)
     based on the current pole and zero locations.
 
     Two decades are displayed below the smallest characteristic
     frequency and above the largest characteristic frequency.
+
+    bounds=(omega_min, omega_max) overrides the automatic range
+    (used while dragging, when the axis shows a given range).
     """
     all_roots = poles + zeros
 
@@ -283,6 +286,9 @@ def compute_frequency_range(num_points=2000):
         if omega_max <= omega_min:
             omega_min = 1e-2
             omega_max = 1e3
+
+    if bounds is not None:
+        omega_min, omega_max = bounds
 
     omega = np.logspace(
         np.log10(omega_min),
@@ -321,15 +327,18 @@ def compute_linear_limit():
     return min(max(W, 1.0), 1e6)
 
 
-def compute_linear_range(num_points=4001):
+def compute_linear_range(num_points=4001, W=None):
     """
     Create a symmetric linear frequency grid [-W, W] (linear mode),
     which includes negative frequencies.
 
     ω = 0 and the exact imaginary parts of all roots are added to
     the grid, for the same reason as in the Bode range.
+
+    W overrides the automatic limit (used while dragging).
     """
-    W = compute_linear_limit()
+    if W is None:
+        W = compute_linear_limit()
 
     omega = np.linspace(-W, W, num_points)
 
@@ -396,7 +405,19 @@ def compute_frequency_response(freeze_limits=False):
     """
     is_bode = spectrum_mode[0] == 'bode'
 
-    if is_bode:
+    if freeze_limits:
+        # While dragging, the grid covers both the automatic range and
+        # the range currently shown, so the curve always fills the axis
+        view_min, view_max = ax_mag.get_xlim()
+
+        if is_bode:
+            auto = compute_frequency_range(num_points=2)
+            bounds = (min(auto[0], view_min), max(auto[-1], view_max))
+            omega = compute_frequency_range(num_points=2000, bounds=bounds)
+        else:
+            W = max(compute_linear_limit(), view_max)
+            omega = compute_linear_range(num_points=4001, W=W)
+    elif is_bode:
         omega = compute_frequency_range(num_points=2000)
     else:
         omega = compute_linear_range(num_points=4001)
@@ -443,7 +464,8 @@ def compute_frequency_response(freeze_limits=False):
     mag_line.set_data(omega, H_mag_plot)
     phase_line.set_data(omega, H_phase_plot)
 
-    # While dragging, the axis limits stay frozen (see blitting below)
+    # While dragging, the limits are adapted separately, only when
+    # needed (see adapt_limits_during_drag below)
     if not freeze_limits:
         for ax in (ax_mag, ax_phase):
             ax.relim()
@@ -955,14 +977,17 @@ def update_plot():
 # is too slow to follow the mouse. When a drag starts, the static
 # part of the figure is rendered once and stored. On every mouse
 # movement only the objects that change are drawn on top of the
-# stored background. Axis limits are frozen during the drag and
-# adapted again when the mouse button is released.
+# stored background. When the moving point needs different axis
+# limits, the limits are changed and the background is rendered
+# again (see adapt_limits_during_drag). When the mouse button is
+# released, a normal full update gives the exact final limits.
 # ============================================================
 drag_render = {
     'active': False,      # blitting mode on/off
     'background': None,   # stored static part of the figure
     'pending': False,     # a redraw is already scheduled
-    'timer': None         # single-shot timer that merges mouse events
+    'timer': None,        # single-shot timer that merges mouse events
+    'full_redraws': 0     # number of limit changes during drags
 }
 
 
@@ -1003,9 +1028,142 @@ def start_drag_rendering():
     blit_dynamic_artists()
 
 
+def _visible_values(line, ax):
+    """
+    Finite y-values of a curve inside the visible x-range of its axes.
+    """
+    x, y = line.get_data()
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x_min, x_max = ax.get_xlim()
+    keep = np.isfinite(y) & (x >= x_min) & (x <= x_max)
+    return y[keep]
+
+
+def _adapted_ylim(ax, values, magnitude_from_zero=False):
+    """
+    New y-limits for ax, or None if the current ones are still good.
+
+    Hysteresis: the limits change only when the curve leaves the axis
+    or uses less than about half of it. New limits get a small margin,
+    so that small movements do not trigger a new change at once.
+    """
+    if values.size == 0:
+        return None
+
+    low, high = float(values.min()), float(values.max())
+    current_low, current_high = ax.get_ylim()
+
+    if magnitude_from_zero:
+        if high > current_high or high < 0.6 * current_high:
+            return (0.0, high * 1.4 if high > 0 else 1.0)
+        return None
+
+    span = max(high - low, 1.0)
+
+    if (
+        low < current_low
+        or high > current_high
+        or (high - low) < 0.5 * (current_high - current_low)
+    ):
+        return (low - 0.15 * span, high + 0.15 * span)
+
+    return None
+
+
+def adapt_limits_during_drag():
+    """
+    Adapt the axis limits while a point is being dragged.
+
+    The axes grow or shrink with the moving pole / zero, like in a normal
+    update, but only when it is really needed (hysteresis), because each
+    change requires one full redraw of the figure. Between changes the
+    fast blitting is used.
+
+    Returns True if any limit changed.
+    """
+    changed = False
+    is_bode = spectrum_mode[0] == 'bode'
+
+    # ------------------------------------------------------------
+    # S-plane: same rule as update_plot(), with extra room when growing
+    # ------------------------------------------------------------
+    all_points = zeros + poles
+    if all_points:
+        max_r = max(max(abs(p.real), abs(p.imag)) for p in all_points)
+        target = max(1.5, max_r + 0.5)
+    else:
+        target = 1.5
+
+    current = ax_plane.get_xlim()[1]
+
+    if target > current or target < 0.75 * current:
+        new_lim = target * 1.3 if target > current else target
+        ax_plane.set_xlim(-new_lim, new_lim)
+        ax_plane.set_ylim(-new_lim, new_lim)
+        changed = True
+
+    # ------------------------------------------------------------
+    # Frequency axis of the spectra
+    # ------------------------------------------------------------
+    view_min, view_max = ax_mag.get_xlim()
+    new_x = None
+
+    if is_bode:
+        auto = compute_frequency_range(num_points=2)
+        target_min, target_max = auto[0], auto[-1]
+        log = np.log10
+
+        if (
+            target_min < view_min
+            or target_max > view_max
+            or log(target_min) - log(view_min) > 0.5
+            or log(view_max) - log(target_max) > 0.5
+        ):
+            # A quarter of a decade of extra room when growing
+            new_min = target_min / 10 ** 0.25 if target_min < view_min else target_min
+            new_max = target_max * 10 ** 0.25 if target_max > view_max else target_max
+            new_x = (new_min, new_max)
+    else:
+        W = compute_linear_limit()
+
+        if W > view_max or W < 0.75 * view_max:
+            W_new = W * 1.3 if W > view_max else W
+            new_x = (-W_new, W_new)
+
+    if new_x is not None:
+        for ax in (ax_mag, ax_phase):
+            ax.set_xlim(*new_x, auto=None)
+        changed = True
+
+        # The frequency grid depends on the shown range
+        compute_frequency_response(freeze_limits=True)
+
+    # ------------------------------------------------------------
+    # Value axes of the spectra
+    # ------------------------------------------------------------
+    new_y = _adapted_ylim(
+        ax_mag,
+        _visible_values(mag_line, ax_mag),
+        magnitude_from_zero=not is_bode
+    )
+    if new_y is not None:
+        ax_mag.set_ylim(*new_y, auto=None)
+        changed = True
+
+    new_y = _adapted_ylim(ax_phase, _visible_values(phase_line, ax_phase))
+    if new_y is not None:
+        ax_phase.set_ylim(*new_y, auto=None)
+        changed = True
+
+    return changed
+
+
 def blit_dynamic_artists():
     """
     Draw only the changing objects on top of the stored background.
+    If the axis limits had to change, the background is rendered again
+    first (one full redraw), so the new limits and ticks appear.
     """
     drag_render['pending'] = False
 
@@ -1015,6 +1173,16 @@ def blit_dynamic_artists():
     refresh_display(freeze_limits=True)
 
     canvas = fig.canvas
+
+    if adapt_limits_during_drag():
+        # The ROC band and labels depend on the S-plane limits
+        refresh_display(freeze_limits=True)
+
+        # Full draw without the animated objects -> new background
+        canvas.draw()
+        drag_render['background'] = canvas.copy_from_bbox(fig.bbox)
+        drag_render['full_redraws'] += 1
+
     canvas.restore_region(drag_render['background'])
 
     for artist in dynamic_artists():
