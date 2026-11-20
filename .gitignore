@@ -9,3 +9,5 @@ __pycache__/
 base_library.zip
 warn-*.txt
 xref-*.html
+.venv/
+.idea/
