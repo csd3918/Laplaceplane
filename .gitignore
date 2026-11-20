@@ -1,0 +1,11 @@
+build/
+dist/
+__pycache__/
+*.pyc
+*.pyz
+*.pkg
+*.toc
+*.exe
+base_library.zip
+warn-*.txt
+xref-*.html
